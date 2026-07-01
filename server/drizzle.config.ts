@@ -1,8 +1,9 @@
-// Drizzle config — activated in the DB step (ARCHITECTURE.md §8).
-// Install then: npm i drizzle-orm pg && npm i -D drizzle-kit @types/pg
-export default {
+import "dotenv/config";
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
   schema: "./src/models/schema.ts",
   out: "./drizzle",
   dialect: "postgresql",
-  dbCredentials: { url: process.env.DATABASE_URL ?? "" },
-};
+  dbCredentials: { url: process.env.DATABASE_URL as string },
+});

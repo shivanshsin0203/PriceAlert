@@ -12,8 +12,9 @@ const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
 
+  DATABASE_URL: z.string().url(), // required (DB phase)
+
   // TODO: make required as each feature lands (ARCHITECTURE.md §15)
-  DATABASE_URL: z.string().url().optional(),
   REDIS_URL: z.string().optional(),
   JWT_SECRET: z.string().min(32).optional(),
   INTERNAL_API_SECRET: z.string().min(16).optional(),
