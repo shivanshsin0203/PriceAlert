@@ -18,10 +18,10 @@ const EnvSchema = z.object({
   REDIS_URL: z.string().optional(),
   JWT_SECRET: z.string().min(32).optional(),
   INTERNAL_API_SECRET: z.string().min(16).optional(),
-  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_BOT_TOKEN: z.string(), // required (bot phase)
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
   TELEGRAM_BOT_USERNAME: z.string().optional(),
-  DEEPSEEK_API_KEY: z.string().optional(),
+  DEEPSEEK_API_KEY: z.string(), // required (brain phase)
   PUBLIC_BASE_URL: z.string().url().optional(),
 });
 
