@@ -1,6 +1,11 @@
 import { getPrice } from "../adapters/registry";
 import { INDIA, label } from "../adapters/symbols";
-import type { Currency, StoredAlert } from "./store";
+import type { Condition } from "../brain/schema";
+
+export type Currency = "USD" | "EUR" | "INR";
+
+// What describeAlert needs to render a one-line summary (id-agnostic; numbering is the caller's job).
+export type AlertView = { condition: Condition; anchorPrice: number; expiresAt: number };
 
 // Native quote currency: Indian stocks trade in ₹, NIFTY is index points, everything else USD.
 const CCY_SYM: Record<Currency, string> = { USD: "$", EUR: "€", INR: "₹" };
@@ -42,13 +47,14 @@ export function fmtRemaining(expiresAt: number): string {
   return mins < 120 ? `${mins}m` : `${Math.round(mins / 60)}h`;
 }
 
-export function describeAlert(a: StoredAlert): string {
+export function describeAlert(a: AlertView, seq?: number): string {
+  const n = seq != null ? `#${seq} ` : "";
   const c = a.condition;
   if (c.kind === "absolute") {
-    return `#${a.id} ${label(c.symbol)} ${c.op} ${fmtPrice(c.value, c.symbol)} · expires in ${fmtRemaining(a.expiresAt)}`;
+    return `${n}${label(c.symbol)} ${c.op} ${fmtPrice(c.value, c.symbol)} · expires in ${fmtRemaining(a.expiresAt)}`;
   }
   const target = a.anchorPrice * (c.dir === "up" ? 1 + c.pct / 100 : 1 - c.pct / 100);
   const arrow = c.dir === "up" ? "+" : "−";
   const cmp = c.dir === "up" ? "≥" : "≤";
-  return `#${a.id} ${label(c.symbol)} ${arrow}${c.pct}% in ${c.window.value}${c.window.unit} from ${fmtPrice(a.anchorPrice, c.symbol)} (fires ${cmp} ${fmtPrice(target, c.symbol)}) · expires in ${fmtRemaining(a.expiresAt)}`;
+  return `${n}${label(c.symbol)} ${arrow}${c.pct}% in ${c.window.value}${c.window.unit} from ${fmtPrice(a.anchorPrice, c.symbol)} (fires ${cmp} ${fmtPrice(target, c.symbol)}) · expires in ${fmtRemaining(a.expiresAt)}`;
 }

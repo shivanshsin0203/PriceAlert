@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fetchTimed } from "./http";
 import { INDIA, INDIA_YAHOO, STOCKS } from "./symbols";
 import type { AssetAdapter, Candle } from "./types";
 
@@ -40,7 +41,7 @@ const ChartResp = z.object({
 async function fetchChart(symbol: string, interval: string, range: string) {
   const y = encodeURIComponent(toYahoo(symbol));
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${y}?interval=${interval}&range=${range}`;
-  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+  const r = await fetchTimed(url, { headers: { "User-Agent": "Mozilla/5.0" } });
   if (!r.ok) throw new Error(`yahoo ${symbol}: ${r.status}`);
   return ChartResp.parse(await r.json());
 }

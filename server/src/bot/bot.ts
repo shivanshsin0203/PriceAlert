@@ -1,21 +1,17 @@
 import { Bot, InlineKeyboard } from "grammy";
-import type { CreateAlertArgs } from "../brain/schema";
+import type { Condition } from "../brain/schema";
 import { runBrain } from "../brain/deepseek";
 import { env } from "../config/env";
-import { logger } from "../lib/logger";
+import { plog } from "../lib/logger";
 import { CRYPTO, FOREX, INDIA, METALS, STOCKS, label, nameOf } from "../adapters/symbols";
+import { getHistory, pushTurn } from "../cache/chat";
+import { findOrCreateByChatId, setCurrency, type BotUser } from "../models/users.repo";
 import { createAlert, deleteAlert, listAlerts } from "../services/alert.service";
-import { describeAlert, fmtPrice, money } from "../services/format";
+import { describeAlert, fmtPrice, money, type Currency } from "../services/format";
 import { getPrices } from "../services/price.service";
-import { store, type Currency } from "../services/store";
 
-// DEV bot: all LLM functions EXECUTE against an in-memory store (no DB/Redis yet).
-type Turn = { role: "user" | "assistant"; content: string };
-const windows = new Map<number, Turn[]>(); // rolling window (→ Redis later)
-const MAX_TURNS = 6;
-const pushTurn = (chatId: number, t: Turn) => {
-  windows.set(chatId, [...(windows.get(chatId) ?? []), t].slice(-MAX_TURNS));
-};
+// DEV bot (long-polling). Alerts now persist in Postgres, are mirrored to Redis,
+// and the watcher fires them for real. Every failure path replies something useful.
 
 const START = `👋 Welcome to AlertEngine (dev build)
 
@@ -24,6 +20,7 @@ I watch asset prices and ping you when your condition hits. Just talk to me in p
 🔔 CREATE ALERTS  (thresholds in USD, window ≤ 24h)
  • "alert me when BTC goes above 70000"
  • "alert me if ETH drops 5% in 1h"
+ • bulk works too: "alert me if top 6 crypto rise 5% in 1h"
 
 💰 GET PRICES — "what's SOL at?" · "prices of gold, oil and nifty"
 💱 CURRENCY — "switch to INR" (display only: USD / EUR / INR)
@@ -37,7 +34,7 @@ I watch asset prices and ping you when your condition hits. Just talk to me in p
 
 ⌨️ /start · /help · /list · /price · /assets
 
-⚠️ DEV MODE: alerts live in memory (reset on restart); watcher not running yet — alerts won't fire. Each reply shows the FUNCTION + INPUT the AI picked. Not financial advice.`;
+⚠️ DEV BUILD: alerts are saved and WILL fire — I check prices every minute and ping you here. Each reply shows the FUNCTION + INPUT the AI picked. Not financial advice.`;
 
 const HELP = `📖 HOW TO USE ME EFFECTIVELY
 
@@ -47,8 +44,8 @@ const HELP = `📖 HOW TO USE ME EFFECTIVELY
  • "alert me when btc goes above 70000"
  • "eth drops 5% in 2 hours"
  • "btc < 55k"  (shorthand works: k, lakh, >, <)
+ • "alert me if top 6 crypto rise 5% in 1h"  (bulk: up to 15 at once)
  • "prices of gold, oil and nifty"
- • "apple price in inr"
 
 ❌ VAGUE — I'll have to ask follow-ups:
  • "alert me on bitcoin"  (no condition)
@@ -57,12 +54,11 @@ const HELP = `📖 HOW TO USE ME EFFECTIVELY
  • "alert when it goes crazy"  (crazy = how many %, in how long?)
 
 📏 MY RULES
- • Thresholds are in USD. "55k" = 55,000 · "1 lakh" = 100,000.
+ • Thresholds are in USD. "55k" = 55,000 · "1 lakh" = 100,000. (Indian stocks & NIFTY are in ₹.)
  • % alerts need a timeframe between 5 minutes and 24 hours.
  • Stocks & NIFTY are only evaluated during market hours; crypto is 24/7.
  • I create alerts I can verify: if your condition is ALREADY true, I'll flag it instead of firing instantly.
- • One alert per message — for a second one, I'll ask right after.
- • Alerts fire once, then auto-remove. Max lifetime 24h.
+ • Alerts fire once, then they're done. Max lifetime 24h — if the window ends without firing, I'll tell you that too.
  • You can write in any language — Hinglish works fine.
 
 ⌨️ SLASH COMMANDS
@@ -92,67 +88,101 @@ const ASSETS = `📈 SUPPORTED ASSETS
 
 All prices/thresholds in USD (display in USD/EUR/INR via "switch to …").`;
 
-async function renderList(chatId: number): Promise<{ text: string; keyboard?: InlineKeyboard }> {
-  const alerts = listAlerts(chatId);
+const DB_TROUBLE =
+  "⚠️ I'm having trouble reaching my database right now — nothing was changed. Please try again in a moment.";
+
+// chatId → user, with a friendly failure mode
+async function resolveUser(chatId: number, username?: string): Promise<BotUser | null> {
+  try {
+    return await findOrCreateByChatId(chatId, username);
+  } catch (e) {
+    plog.error(`bot: user resolution failed for chat ${chatId} — ${(e as Error).message}`);
+    return null;
+  }
+}
+
+async function renderList(user: BotUser): Promise<{ text: string; keyboard?: InlineKeyboard }> {
+  const alerts = await listAlerts(user.userId);
   if (alerts.length === 0) return { text: '📋 No active alerts. Try "alert me if BTC drops 5% in 1h".' };
   const kb = new InlineKeyboard();
-  for (const a of alerts) kb.text(`🗑 Delete #${a.id}`, `del:${a.id}`).row();
-  return { text: "📋 Your alerts:\n" + alerts.map((a) => `• ${describeAlert(a)}`).join("\n"), keyboard: kb };
+  alerts.forEach((a, i) => kb.text(`🗑 Delete #${i + 1}`, `del:${a.id}`).row());
+  return {
+    text: "📋 Your alerts:\n" + alerts.map((a, i) => `• ${describeAlert(a, i + 1)}`).join("\n"),
+    keyboard: kb,
+  };
 }
 
 // Execute a validated brain action. Returns the text to append to the AI's message.
 async function execute(
-  chatId: number,
+  user: BotUser,
   name: string,
   args: Record<string, unknown>,
 ): Promise<{ text: string; keyboard?: InlineKeyboard }> {
   switch (name) {
     case "get_price": {
-      const cur = (args.currency as Currency) ?? store.getCurrency(chatId);
+      const cur = (args.currency as Currency) ?? user.currency;
       const prices = await getPrices((args.symbols as string[]) ?? []);
       const lines = await Promise.all(
-        prices.map(async (p) => (p.price != null ? `• ${label(p.symbol)}: ${await money(p.price, p.symbol, cur)}` : `• ${label(p.symbol)}: unavailable`)),
+        prices.map(async (p) =>
+          p.price != null
+            ? `• ${label(p.symbol)}: ${await money(p.price, p.symbol, cur)}`
+            : `• ${label(p.symbol)}: unavailable right now — try again shortly`,
+        ),
       );
       return { text: lines.join("\n") };
     }
     case "create_alert": {
-      const res = await createAlert(chatId, args as unknown as CreateAlertArgs);
-      if (!res.ok) return { text: `⚠️ Not created — ${res.reason}.` };
-      const note = res.note ? `\nℹ️ ${res.note}` : "";
-      return { text: `✅ Created ${describeAlert(res.alert)}\n(current: ${fmtPrice(res.current, res.alert.condition.symbol)})${note}` };
+      // bulk-capable: up to 15 alerts per message, each validated + persisted independently
+      const conds = (args as unknown as { alerts: Condition[] }).alerts;
+      const results = await Promise.all(conds.map((c) => createAlert(user, c)));
+      const lines = results.map((res, i) =>
+        res.ok
+          ? `✅ ${describeAlert(res.alert)} · now ${fmtPrice(res.current, conds[i].symbol)}${res.note ? `\n   ℹ️ ${res.note}` : ""}`
+          : `⚠️ ${nameOf(conds[i].symbol)}: not created — ${res.reason}.`,
+      );
+      return { text: lines.join("\n") };
     }
     case "change_currency": {
-      store.setCurrency(chatId, args.currency as Currency);
+      await setCurrency(user, args.currency as Currency);
       return { text: `💱 Display currency is now ${args.currency}. (Alert thresholds stay in USD.)` };
     }
     case "list_alerts":
-      return renderList(chatId);
+      return renderList(user);
     default:
       return { text: "" };
   }
 }
 
 export function createBot() {
-  const bot = new Bot(env.TELEGRAM_BOT_TOKEN as string);
+  const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
 
   bot.command("start", (ctx) => ctx.reply(START));
   bot.command("help", (ctx) => ctx.reply(HELP));
   bot.command("assets", (ctx) => ctx.reply(ASSETS));
   bot.command("list", async (ctx) => {
-    const { text, keyboard } = await renderList(ctx.chat.id);
+    const user = await resolveUser(ctx.chat.id, ctx.from?.username);
+    if (!user) return void (await ctx.reply(DB_TROUBLE));
+    const { text, keyboard } = await renderList(user);
     await ctx.reply(text, { reply_markup: keyboard });
   });
   bot.command("price", (ctx) => ctx.reply('💰 Just ask, e.g. "what\'s BTC?" or "prices of gold and oil".'));
 
-  // 🗑 button taps — deterministic, no LLM (state rides in callback_data)
+  // 🗑 button taps — deterministic, no LLM (the alert uuid rides in callback_data)
   bot.on("callback_query:data", async (ctx) => {
     const data = ctx.callbackQuery.data;
     if (data.startsWith("del:")) {
-      const id = Number(data.slice(4));
-      const ok = deleteAlert(ctx.chat!.id, id);
-      await ctx.answerCallbackQuery({ text: ok ? `Deleted #${id}` : `#${id} not found` });
-      const { text, keyboard } = await renderList(ctx.chat!.id);
-      await ctx.editMessageText(text, { reply_markup: keyboard });
+      const id = data.slice(4);
+      const user = await resolveUser(ctx.chat!.id, ctx.from?.username);
+      if (!user) return void (await ctx.answerCallbackQuery({ text: "Database unavailable — try again." }));
+      try {
+        const ok = await deleteAlert(user.userId, id);
+        await ctx.answerCallbackQuery({ text: ok ? "Deleted ✓" : "Already gone" });
+        const { text, keyboard } = await renderList(user);
+        await ctx.editMessageText(text, { reply_markup: keyboard });
+      } catch (e) {
+        plog.error(`bot: delete failed — ${(e as Error).message}`);
+        await ctx.answerCallbackQuery({ text: "Couldn't delete — try again." });
+      }
       return;
     }
     await ctx.answerCallbackQuery();
@@ -161,28 +191,32 @@ export function createBot() {
   bot.on("message:text", async (ctx) => {
     const chatId = ctx.chat.id;
     const text = ctx.message.text;
+    plog.bot(`chat ${chatId} ⟵ "${text}"`);
 
-    const r = await runBrain(text, { currency: store.getCurrency(chatId), history: windows.get(chatId) ?? [] });
-    logger.info(
-      `chat ${chatId} | "${text}" -> ${r.action.name ?? "none"}` +
-        (r.action.name ? ` ${JSON.stringify(r.action.args)}` : ""),
+    const user = await resolveUser(chatId, ctx.from?.username);
+    if (!user) return void (await ctx.reply(DB_TROUBLE));
+
+    const r = await runBrain(text, { currency: user.currency, history: await getHistory(chatId) });
+    plog.brain(
+      `chat ${chatId} → ${r.action.name ?? "none"}${r.action.name ? ` ${JSON.stringify(r.action.args)}` : ""}`,
     );
 
     let extra = "";
     let keyboard: InlineKeyboard | undefined;
     if (r.action.name) {
       try {
-        const out = await execute(chatId, r.action.name, r.action.args);
+        const out = await execute(user, r.action.name, r.action.args);
         extra = out.text ? `\n\n${out.text}` : "";
         keyboard = out.keyboard;
       } catch (e) {
-        extra = `\n\n⚠️ Couldn't complete that: ${(e as Error).message}`;
+        plog.error(`bot: execute(${r.action.name}) failed — ${(e as Error).message}`);
+        extra = "\n\n⚠️ I couldn't complete that — something failed on my side. Please try again in a moment.";
       }
     }
 
     // memory includes what the SYSTEM did (rejections, prices) so "yes"-style follow-ups work
-    pushTurn(chatId, { role: "user", content: text });
-    pushTurn(chatId, { role: "assistant", content: `${r.message}${extra}` });
+    await pushTurn(chatId, { role: "user", content: text });
+    await pushTurn(chatId, { role: "assistant", content: `${r.message}${extra}` });
 
     const dev = r.action.name
       ? `🔧 [dev] ${r.action.name} ${JSON.stringify(r.action.args)}`
@@ -190,7 +224,7 @@ export function createBot() {
     await ctx.reply(`${r.message}${extra}\n\n━━━━━━━━━━━━━━\n${dev}`, { reply_markup: keyboard });
   });
 
-  bot.catch((err) => logger.error("bot error:", err.error));
+  bot.catch((err) => plog.error("bot error:", err.error));
   return bot;
 }
 
@@ -203,6 +237,6 @@ export async function startBot() {
     { command: "price", description: "Get a price" },
     { command: "assets", description: "Everything I can watch" },
   ]);
-  logger.info("Telegram bot starting (long-polling, dev)…");
-  await bot.start({ onStart: (info) => logger.info(`Bot @${info.username} is live.`) });
+  plog.bot("Telegram bot starting (long-polling, dev)…");
+  await bot.start({ onStart: (info) => plog.bot(`@${info.username} is live ✓`) });
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fetchTimed } from "./http";
 import { FOREX } from "./symbols";
 import type { AssetAdapter } from "./types";
 
@@ -11,7 +12,7 @@ export const forex: AssetAdapter = {
 
   async getPrice(symbol) {
     const quote = symbol.slice(3); // USD base, e.g. USDINR -> INR
-    const r = await fetch("https://open.er-api.com/v6/latest/USD");
+    const r = await fetchTimed("https://open.er-api.com/v6/latest/USD");
     if (!r.ok) throw new Error(`forex getPrice ${symbol}: ${r.status}`);
     const data = Resp.parse(await r.json());
     const rate = data.rates[quote];

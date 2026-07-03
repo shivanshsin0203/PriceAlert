@@ -8,8 +8,8 @@ const Window = z.object({ value: z.number().positive(), unit: z.enum(["m", "h", 
 export const windowMinutes = (w: { value: number; unit: "m" | "h" | "d" }) =>
   w.unit === "m" ? w.value : w.unit === "h" ? w.value * 60 : w.value * 1440;
 
-// create_alert args = a condition (phase 1: threshold | percent)
-export const CreateAlertArgs = z.discriminatedUnion("kind", [
+// One alert condition (phase 1: threshold | percent)
+export const Condition = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("absolute"),
     symbol: AlertSymbol,
@@ -24,6 +24,10 @@ export const CreateAlertArgs = z.discriminatedUnion("kind", [
     window: Window,
   }),
 ]);
+export type Condition = z.infer<typeof Condition>;
+
+// create_alert args = 1..15 conditions ("alert on all indian stocks if they rise 5%")
+export const CreateAlertArgs = z.object({ alerts: z.array(Condition).min(1).max(15) });
 export type CreateAlertArgs = z.infer<typeof CreateAlertArgs>;
 
 export const GetPriceArgs = z.object({
@@ -45,12 +49,16 @@ export type Envelope = z.infer<typeof Envelope>;
 export function validateArgs(name: string, args: unknown) {
   switch (name) {
     case "create_alert": {
-      // safety net: some models wrap the condition under a "condition" key
-      const a =
-        args && typeof args === "object" && "condition" in args
-          ? (args as { condition: unknown }).condition
-          : args;
-      return CreateAlertArgs.safeParse(a);
+      // normalize the model's output to {alerts:[...]}: accept a bare condition,
+      // {condition:{...}}, or {alerts:[...]}; drop invalid entries, keep valid ones
+      const o = (args ?? {}) as Record<string, unknown>;
+      const raw: unknown[] = Array.isArray(o.alerts)
+        ? o.alerts
+        : "condition" in o
+          ? [o.condition]
+          : [o];
+      const valid = raw.filter((c) => Condition.safeParse(c).success);
+      return CreateAlertArgs.safeParse({ alerts: valid });
     }
     case "get_price":
       return GetPriceArgs.safeParse(args);

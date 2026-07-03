@@ -14,8 +14,9 @@ const EnvSchema = z.object({
 
   DATABASE_URL: z.string().url(), // required (DB phase)
 
+  REDIS_URL: z.string(), // required (persistence phase)
+
   // TODO: make required as each feature lands (ARCHITECTURE.md §15)
-  REDIS_URL: z.string().optional(),
   JWT_SECRET: z.string().min(32).optional(),
   INTERNAL_API_SECRET: z.string().min(16).optional(),
   TELEGRAM_BOT_TOKEN: z.string(), // required (bot phase)

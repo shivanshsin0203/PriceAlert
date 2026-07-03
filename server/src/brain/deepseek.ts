@@ -74,8 +74,15 @@ export async function runBrain(
         }
       }
       // known case: alert requested on a price-only asset
-      const raw = out.action.args as { symbol?: unknown; condition?: { symbol?: unknown } };
-      const sym = typeof raw?.symbol === "string" ? raw.symbol : raw?.condition?.symbol;
+      const raw = out.action.args as {
+        symbol?: unknown;
+        condition?: { symbol?: unknown };
+        alerts?: { symbol?: unknown }[];
+      };
+      const sym =
+        typeof raw?.symbol === "string"
+          ? raw.symbol
+          : (raw?.condition?.symbol ?? raw?.alerts?.[0]?.symbol);
       if (
         out.action.name === "create_alert" &&
         typeof sym === "string" &&
@@ -91,15 +98,15 @@ export async function runBrain(
     }
     const data = res.data as Record<string, unknown>;
 
-    if (
-      out.action.name === "create_alert" &&
-      data.kind === "pct_change" &&
-      windowMinutes(data.window as { value: number; unit: "m" | "h" | "d" }) > 1440
-    ) {
-      return {
-        message: 'Alerts can watch at most a 24-hour window. Try e.g. "5% in 1h" or "5% in a day".',
-        action: { name: null, args: {} },
-      };
+    // business rule: percent-change windows must be <= 24h (checked per condition)
+    if (out.action.name === "create_alert") {
+      const alerts = data.alerts as { kind: string; window?: { value: number; unit: "m" | "h" | "d" } }[];
+      if (alerts.some((c) => c.kind === "pct_change" && c.window && windowMinutes(c.window) > 1440)) {
+        return {
+          message: 'Alerts can watch at most a 24-hour window. Try e.g. "5% in 1h" or "5% in a day".',
+          action: { name: null, args: {} },
+        };
+      }
     }
 
     return { message: out.message, action: { name: out.action.name, args: data } };
@@ -112,6 +119,43 @@ function safeJson(s: string): unknown {
   try {
     return JSON.parse(s);
   } catch {
+    return null;
+  }
+}
+
+// ── Grounded fire context (ARCHITECTURE.md §14.3) ──
+// Numbers in, ONE neutral sentence out. The model NEVER invents data — it only rephrases
+// the facts we hand it. Hard 6s timeout, no retries: a fire must never wait on a slow LLM;
+// null = caller falls back to the deterministic text alone.
+export async function groundedFireContext(facts: {
+  asset: string;
+  kind: "absolute" | "pct_change";
+  anchorPrice: number;
+  currentPrice: number;
+  movedPct: number;
+  target: string;
+  window?: string;
+}): Promise<string | null> {
+  try {
+    const completion = await client.chat.completions.create(
+      {
+        model: "deepseek-chat",
+        temperature: 0.3,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You write ONE short neutral sentence (max 25 words) of context for a price-alert notification that just fired. Ground it ONLY in the JSON numbers provided — never invent data, never predict, never advise, no emojis, no disclaimers.",
+          },
+          { role: "user", content: JSON.stringify(facts) },
+        ],
+      },
+      { timeout: 6_000, maxRetries: 0 },
+    );
+    const s = completion.choices[0]?.message?.content?.trim();
+    return s ? s.replace(/\s+/g, " ") : null;
+  } catch (e) {
+    logger.warn(`grounded context skipped: ${(e as Error).message} (deterministic text only)`);
     return null;
   }
 }

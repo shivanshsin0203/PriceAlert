@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fetchTimed } from "./http";
 import { CRYPTO } from "./symbols";
 import type { AssetAdapter, Candle } from "./types";
 
@@ -11,7 +12,7 @@ export const binance: AssetAdapter = {
   supports: (symbol) => CRYPTO.includes(symbol),
 
   async getPrice(symbol) {
-    const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${toBinance(symbol)}`);
+    const r = await fetchTimed(`https://api.binance.com/api/v3/ticker/price?symbol=${toBinance(symbol)}`);
     if (!r.ok) throw new Error(`binance getPrice ${symbol}: ${r.status}`);
     const data = PriceResp.parse(await r.json());
     return { symbol, price: Number(data.price), ts: Date.now() };
@@ -19,7 +20,7 @@ export const binance: AssetAdapter = {
 
   async getHistory(symbol, interval, limit) {
     const url = `https://api.binance.com/api/v3/klines?symbol=${toBinance(symbol)}&interval=${interval}&limit=${limit}`;
-    const r = await fetch(url);
+    const r = await fetchTimed(url);
     if (!r.ok) throw new Error(`binance getHistory ${symbol}: ${r.status}`);
     const raw = (await r.json()) as unknown[][];
     return raw.map(
