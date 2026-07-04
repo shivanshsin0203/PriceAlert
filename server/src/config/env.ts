@@ -24,6 +24,10 @@ const EnvSchema = z.object({
   TELEGRAM_BOT_USERNAME: z.string().optional(),
   DEEPSEEK_API_KEY: z.string(), // required (brain phase)
   PUBLIC_BASE_URL: z.string().url().optional(),
+
+  // Dashboard dev phase (pre-auth): all /api requests act as this Telegram-first user.
+  // Replaced by the JWT identity when auth lands — nothing else changes.
+  DASHBOARD_CHAT_ID: z.coerce.number().int().default(1764981523),
 });
 
 const parsed = EnvSchema.safeParse(process.env);

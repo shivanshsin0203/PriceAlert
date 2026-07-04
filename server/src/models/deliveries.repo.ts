@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, count, desc, eq, isNull } from "drizzle-orm";
 import { db } from "./db";
 import { deliveries, telegramLinks } from "./schema";
 
@@ -42,6 +42,40 @@ export async function markSent(id: string): Promise<void> {
 
 export async function markFailed(id: string): Promise<void> {
   await db.update(deliveries).set({ status: "failed" }).where(eq(deliveries.id, id));
+}
+
+// ── In-app inbox (the dashboard bell) — readers over rows the engine already writes ──
+// The `inapp` delivery row IS the notification. Dismiss = soft delete (dismissed_at),
+// so the fire/delivery audit trail stays intact.
+
+const inboxWhere = (userId: string) =>
+  and(eq(deliveries.userId, userId), eq(deliveries.channel, "inapp"), isNull(deliveries.dismissedAt));
+
+export const listInbox = (userId: string, limit = 50) =>
+  db.select().from(deliveries).where(inboxWhere(userId)).orderBy(desc(deliveries.firedAt)).limit(limit);
+
+export async function unreadCount(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ n: count() })
+    .from(deliveries)
+    .where(and(inboxWhere(userId), eq(deliveries.read, false)));
+  return row?.n ?? 0;
+}
+
+export async function markAllRead(userId: string): Promise<void> {
+  await db
+    .update(deliveries)
+    .set({ read: true })
+    .where(and(inboxWhere(userId), eq(deliveries.read, false)));
+}
+
+export async function dismissNotification(id: string, userId: string): Promise<boolean> {
+  const [row] = await db
+    .update(deliveries)
+    .set({ dismissedAt: new Date(), read: true })
+    .where(and(eq(deliveries.id, id), eq(deliveries.userId, userId), eq(deliveries.channel, "inapp")))
+    .returning({ id: deliveries.id });
+  return !!row;
 }
 
 // The delivery worker loads by id, joined with the chat to send to.

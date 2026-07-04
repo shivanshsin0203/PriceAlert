@@ -11,7 +11,7 @@ export type AlertView = { condition: Condition; anchorPrice: number; expiresAt: 
 const CCY_SYM: Record<Currency, string> = { USD: "$", EUR: "€", INR: "₹" };
 const rateCache = new Map<Currency, { rate: number; ts: number }>();
 
-async function usdRate(c: Currency): Promise<number> {
+export async function usdRate(c: Currency): Promise<number> {
   if (c === "USD") return 1;
   const hit = rateCache.get(c);
   if (hit && Date.now() - hit.ts < 30 * 60_000) return hit.rate;
@@ -29,6 +29,14 @@ export function fmtPrice(value: number, symbol: string): string {
 }
 
 export const fmtUsd = (n: number) => `$${num(n)}`;
+
+// Dashboard display rule (user decision): USD-quoted assets shown in the user's SELECTED
+// currency with the native USD in parens — the target was set in native, so it stays
+// visible for comparison. Indian stocks / NIFTY are always native (₹ / index points).
+export function displayPrice(value: number, symbol: string, c: Currency, rate: number): string {
+  if (c === "USD" || symbol === "NIFTY" || INDIA.includes(symbol)) return fmtPrice(value, symbol);
+  return `${CCY_SYM[c]}${num(value * rate)} ($${num(value)})`;
+}
 
 // For get_price: Indian stocks/NIFTY shown natively; USD assets optionally converted to display ccy.
 export async function money(value: number, symbol: string, c: Currency): Promise<string> {

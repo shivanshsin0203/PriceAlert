@@ -37,6 +37,16 @@ export async function insertAlert(a: NewAlert): Promise<AlertRow> {
 export const listActiveByUser = (userId: string) =>
   db.select().from(alerts).where(and(eq(alerts.userId, userId), eq(alerts.status, "active"))).orderBy(alerts.createdAt);
 
+// Dashboard graph: load one alert scoped to its owner (any status — terminal alerts still chart).
+export async function findByIdForUser(id: string, userId: string): Promise<AlertRow | null> {
+  const [row] = await db
+    .select()
+    .from(alerts)
+    .where(and(eq(alerts.id, id), eq(alerts.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
 // Terminal transitions — return the row only if WE made the transition (idempotency guard).
 async function transition(id: string, status: "triggered" | "expired" | "cancelled"): Promise<AlertRow | null> {
   const [row] = await db

@@ -90,6 +90,7 @@ export const deliveries = pgTable(
     contextText: text("context_text"),
     payload: jsonb("payload"),
     read: boolean("read").notNull().default(false),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }), // soft-delete from the in-app bell (audit row survives)
     firedAt: timestamp("fired_at", { withTimezone: true }).notNull().defaultNow(),
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

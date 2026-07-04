@@ -1,13 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// BFF proxy (ARCHITECTURE.md §4, §4.1): forwards /api/* to Express with the JWT cookie
-// + INTERNAL_API_SECRET header. Placeholder until auth + server endpoints exist.
-// TODO (build step 4): read JWT cookie → forward to EXPRESS_API_URL with Authorization + secret.
-async function handler(_req: NextRequest) {
-  return NextResponse.json(
-    { error: { code: "not_implemented", message: "BFF proxy not implemented yet (skeleton)" } },
-    { status: 501 },
-  );
+// BFF proxy (ARCHITECTURE.md §4, §4.1): the browser only ever talks to /api/* here;
+// we forward to Express server-side (no CORS, Express stays private).
+// Pre-auth phase: no JWT/secret headers yet — added when auth lands.
+const EXPRESS_API_URL = process.env.EXPRESS_API_URL ?? "http://localhost:4000";
+
+async function handler(req: NextRequest, ctx: { params: Promise<{ proxy: string[] }> }) {
+  const { proxy } = await ctx.params;
+  const url = `${EXPRESS_API_URL}/api/${proxy.join("/")}${req.nextUrl.search}`;
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(url, {
+      method: req.method,
+      headers: { "content-type": "application/json" },
+      body: req.method === "GET" || req.method === "HEAD" ? undefined : await req.text(),
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    return NextResponse.json(
+      { error: { message: "API server unreachable — is the Express server running?" } },
+      { status: 502 },
+    );
+  }
+
+  const body = await upstream.text();
+  return new NextResponse(body, {
+    status: upstream.status,
+    headers: { "content-type": upstream.headers.get("content-type") ?? "application/json" },
+  });
 }
 
 export const GET = handler;
