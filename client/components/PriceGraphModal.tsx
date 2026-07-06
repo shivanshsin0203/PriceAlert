@@ -6,6 +6,7 @@ import {
   createChart,
   createSeriesMarkers,
   LineStyle,
+  type AutoscaleInfo,
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
@@ -86,6 +87,13 @@ export default function PriceGraphModal({ alert, onClose }: { alert: AlertDTO; o
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
 
+  // Escape closes (backdrop click already does)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   // fetch (+ refresh while active)
   useEffect(() => {
     let stop = false;
@@ -110,23 +118,24 @@ export default function PriceGraphModal({ alert, onClose }: { alert: AlertDTO; o
       width: el.clientWidth,
       height: 380,
       layout: {
-        background: { type: ColorType.Solid, color: "#0b0d10" },
-        textColor: "#9aa7b2",
+        background: { type: ColorType.Solid, color: "#0b0f14" },
+        textColor: "#93a1b0",
         attributionLogo: false,
       },
-      grid: { vertLines: { visible: false }, horzLines: { color: "#1a2026" } },
-      timeScale: { timeVisible: true, secondsVisible: false, borderColor: "#232a31", rightOffset: 3 },
-      rightPriceScale: { borderColor: "#232a31" },
+      grid: { vertLines: { visible: false }, horzLines: { color: "#151d27" } },
+      timeScale: { timeVisible: true, secondsVisible: false, borderColor: "#1c2733", rightOffset: 3 },
+      rightPriceScale: { borderColor: "#1c2733" },
       crosshair: {
-        horzLine: { color: "#4a5866", labelBackgroundColor: "#232a31" },
-        vertLine: { color: "#4a5866", labelBackgroundColor: "#232a31" },
+        horzLine: { color: "#2a3a4c", labelBackgroundColor: "#141d28" },
+        vertLine: { color: "#2a3a4c", labelBackgroundColor: "#141d28" },
       },
     });
+    // Blue = market data; amber is reserved for the alert's own truth (target, fire).
     const series = chart.addSeries(AreaSeries, {
-      lineColor: "#38bdf8",
+      lineColor: "#4da3ff",
       lineWidth: 2,
-      topColor: "rgba(56, 189, 248, 0.25)",
-      bottomColor: "rgba(56, 189, 248, 0.0)",
+      topColor: "rgba(77, 163, 255, 0.22)",
+      bottomColor: "rgba(77, 163, 255, 0.0)",
       priceLineVisible: true,
       lastValueVisible: true,
     });
@@ -162,27 +171,46 @@ export default function PriceGraphModal({ alert, onClose }: { alert: AlertDTO; o
     series.setData(pts);
 
     const prec = precisionFor(a.targetPrice || pts[pts.length - 1]?.value || 1);
-    series.applyOptions({ priceFormat: { type: "price", precision: prec, minMove: 1 / 10 ** prec } });
+    series.applyOptions({
+      priceFormat: { type: "price", precision: prec, minMove: 1 / 10 ** prec },
+      // Autoscale normally fits only the data — a far-away target (e.g. a stock
+      // level well above today's range) would leave its line off-screen. Stretch
+      // the scale to always include the target (and the start price for % alerts).
+      autoscaleInfoProvider: (original: () => AutoscaleInfo | null): AutoscaleInfo | null => {
+        const res = original();
+        if (!res?.priceRange) return res;
+        let { minValue, maxValue } = res.priceRange;
+        minValue = Math.min(minValue, a.targetPrice);
+        maxValue = Math.max(maxValue, a.targetPrice);
+        if (a.condition.kind === "pct_change") {
+          minValue = Math.min(minValue, a.anchorPrice);
+          maxValue = Math.max(maxValue, a.anchorPrice);
+        }
+        return { ...res, priceRange: { minValue, maxValue } };
+      },
+    });
 
     // overlay lines are static per alert — draw once
     if (firstRender) {
       priceLinesRef.current.push(
         series.createPriceLine({
           price: a.targetPrice,
-          color: "#4ade80",
+          color: "#f5a524",
           lineStyle: LineStyle.Dashed,
           lineWidth: 1,
           title: "target",
         }),
       );
+      // Titled "start" (the price when the alert was made) — the time-axis marker
+      // already says "created"; two identical labels read as a duplicate.
       if (a.condition.kind === "pct_change") {
         priceLinesRef.current.push(
           series.createPriceLine({
             price: a.anchorPrice,
-            color: "#6b7683",
+            color: "#5f6b79",
             lineStyle: LineStyle.Dotted,
             lineWidth: 1,
-            title: "created",
+            title: "start",
           }),
         );
       }
@@ -197,10 +225,10 @@ export default function PriceGraphModal({ alert, onClose }: { alert: AlertDTO; o
         return best;
       };
       const markers: SeriesMarker<Time>[] = [
-        { time: snap(a.createdAt), position: "belowBar", color: "#38bdf8", shape: "arrowUp", text: "created" },
+        { time: snap(a.createdAt), position: "belowBar", color: "#4da3ff", shape: "arrowUp", text: "created" },
       ];
       if (a.triggeredAt) {
-        markers.push({ time: snap(a.triggeredAt), position: "aboveBar", color: "#4ade80", shape: "circle", text: "fired" });
+        markers.push({ time: snap(a.triggeredAt), position: "aboveBar", color: "#f5a524", shape: "circle", text: "fired" });
       }
       if (!markersRef.current) markersRef.current = createSeriesMarkers(series, markers);
       else markersRef.current.setMarkers(markers);
@@ -211,13 +239,13 @@ export default function PriceGraphModal({ alert, onClose }: { alert: AlertDTO; o
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+      <div className="modal modal-wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={alert.label}>
         <div className="modal-head">
           <div>
             <h2>{alert.label}</h2>
             <p className="modal-sub">{(data?.alert ?? alert).description}</p>
           </div>
-          <button className="icon-btn" onClick={onClose}>✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>
         </div>
 
         {error && <div className="form-error">{error}</div>}

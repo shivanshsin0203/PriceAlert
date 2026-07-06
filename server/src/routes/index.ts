@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { COMMODITIES, CRYPTO, INDIA, INDICES, NAMES, STOCKS } from "../adapters/symbols";
-import { updateCurrency } from "../controllers/me.controller";
-import { dashboardUser } from "../middleware/dashboardUser.middleware";
+import { getMe, telegramLinkToken, updateCurrency } from "../controllers/me.controller";
+import { requireUser } from "../middleware/auth.middleware";
 import alertsRoute from "./alerts.route";
 import notificationsRoute from "./notifications.route";
 
-// Domain API router (mounted at /api). Every route runs as the dashboard user
-// (pre-auth seam — see dashboardUser.middleware).
+// Domain API router (mounted at /api). Every route requires the internal secret (caller
+// is our BFF) + the user JWT — with a development-only fallback identity (§4.1, §6).
 const apiRouter = Router();
 
 apiRouter.get("/", (_req, res) => {
@@ -26,9 +26,11 @@ apiRouter.get("/symbols", (_req, res) => {
   });
 });
 
-apiRouter.use(dashboardUser);
+apiRouter.use(requireUser);
 apiRouter.use("/alerts", alertsRoute);
 apiRouter.use("/notifications", notificationsRoute);
+apiRouter.get("/me", getMe);
 apiRouter.post("/me/currency", updateCurrency);
+apiRouter.post("/me/telegram/link-token", telegramLinkToken);
 
 export default apiRouter;

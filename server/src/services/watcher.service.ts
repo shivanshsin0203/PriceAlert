@@ -40,11 +40,11 @@ export async function runTick(): Promise<void> {
         }
       }),
     )
-  ).filter((x): x is PreparedExpiry => x != null && x.deliveryId != null);
+  ).filter((x): x is PreparedExpiry => x != null && x.deliveryId != null && x.chatId != null);
 
   // Telegram ⌛ sends grouped per user: 1 expiry → normal send, several → ONE summary
   const byChat = new Map<number, PreparedExpiry[]>();
-  for (const p of prepared) byChat.set(p.chatId, [...(byChat.get(p.chatId) ?? []), p]);
+  for (const p of prepared) byChat.set(p.chatId as number, [...(byChat.get(p.chatId as number) ?? []), p]);
   for (const [chatId, items] of byChat) {
     if (items.length === 1) {
       await enqueueDelivery(items[0].deliveryId as string);

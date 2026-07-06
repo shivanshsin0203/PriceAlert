@@ -70,9 +70,11 @@ export async function cancelAlert(id: string, userId: string): Promise<boolean> 
 }
 
 // Rehydrate source: every active alert joined with its owner's chat_id (§9 rules).
+// LEFT join: a Google-only owner has no telegram link yet — the alert still gets watched
+// (in-app delivery), and a later link + rehydrate upgrades the hot copy in place.
 export const loadActiveWithChat = () =>
   db
     .select({ alert: alerts, chatId: telegramLinks.chatId })
     .from(alerts)
-    .innerJoin(telegramLinks, eq(telegramLinks.userId, alerts.userId))
+    .leftJoin(telegramLinks, eq(telegramLinks.userId, alerts.userId))
     .where(eq(alerts.status, "active"));

@@ -5,6 +5,37 @@ import { api, ApiError, type Condition, type SymbolGroups } from "../lib/api";
 
 // Structured create form — the same validated service the Telegram bot uses, no LLM.
 // Server guard failures (already-above, market closed, window too short) surface verbatim.
+// Two-choice fields are segmented controls, not dropdowns — one tap, state visible.
+
+function Seg<T extends string>({
+  value,
+  onChange,
+  options,
+  toned = false,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { v: T; label: string; tone?: "up" | "down" }[];
+  toned?: boolean;
+}) {
+  return (
+    <div className="seg" role="group">
+      {options.map((o) => (
+        <button
+          key={o.v}
+          type="button"
+          aria-pressed={value === o.v}
+          className={
+            value === o.v ? `seg-on${toned && o.tone ? ` seg-${o.tone}` : ""}` : undefined
+          }
+          onClick={() => onChange(o.v)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function CreateAlertModal({
   onClose,
@@ -28,6 +59,13 @@ export default function CreateAlertModal({
   useEffect(() => {
     api.symbols().then((s) => setGroups(s.groups)).catch(() => setError("Couldn't load the asset list"));
   }, []);
+
+  // Escape closes (backdrop click already does)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   // Creation is ALWAYS in the asset's native quote — the number the engine compares.
   // (Display elsewhere follows the user's selected currency; entry never does.)
@@ -68,10 +106,10 @@ export default function CreateAlertModal({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="New alert">
         <div className="modal-head">
           <h2>New alert</h2>
-          <button className="icon-btn" onClick={onClose}>✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>
         </div>
 
         <form onSubmit={submit} className="form">
@@ -90,23 +128,32 @@ export default function CreateAlertModal({
             </select>
           </label>
 
-          <label>
+          <div className="fgroup">
             Alert type
-            <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
-              <option value="absolute">Price level (above / below)</option>
-              <option value="pct_change">% move in a time window</option>
-            </select>
-          </label>
+            <Seg
+              value={kind}
+              onChange={setKind}
+              options={[
+                { v: "absolute", label: "Price level" },
+                { v: "pct_change", label: "% move in a window" },
+              ]}
+            />
+          </div>
 
           {kind === "absolute" ? (
             <div className="form-row">
-              <label>
+              <div className="fgroup">
                 Direction
-                <select value={op} onChange={(e) => setOp(e.target.value as typeof op)}>
-                  <option value="above">goes above</option>
-                  <option value="below">goes below</option>
-                </select>
-              </label>
+                <Seg
+                  value={op}
+                  onChange={setOp}
+                  toned
+                  options={[
+                    { v: "above", label: "▲ goes above", tone: "up" },
+                    { v: "below", label: "▼ goes below", tone: "down" },
+                  ]}
+                />
+              </div>
               <label>
                 Price {unit.sym && `(${unit.sym})`}
                 <input type="number" step="any" min="0" placeholder="e.g. 70000" value={value} onChange={(e) => setValue(e.target.value)} />
@@ -115,13 +162,18 @@ export default function CreateAlertModal({
           ) : (
             <>
               <div className="form-row">
-                <label>
+                <div className="fgroup">
                   Direction
-                  <select value={dir} onChange={(e) => setDir(e.target.value as typeof dir)}>
-                    <option value="up">rises</option>
-                    <option value="down">drops</option>
-                  </select>
-                </label>
+                  <Seg
+                    value={dir}
+                    onChange={setDir}
+                    toned
+                    options={[
+                      { v: "up", label: "▲ rises", tone: "up" },
+                      { v: "down", label: "▼ drops", tone: "down" },
+                    ]}
+                  />
+                </div>
                 <label>
                   Percent
                   <input type="number" step="any" min="0" placeholder="e.g. 5" value={pct} onChange={(e) => setPct(e.target.value)} />
@@ -132,21 +184,25 @@ export default function CreateAlertModal({
                   Within
                   <input type="number" min="1" value={winValue} onChange={(e) => setWinValue(e.target.value)} />
                 </label>
-                <label>
+                <div className="fgroup">
                   Unit
-                  <select value={winUnit} onChange={(e) => setWinUnit(e.target.value as typeof winUnit)}>
-                    <option value="m">minutes</option>
-                    <option value="h">hours</option>
-                  </select>
-                </label>
+                  <Seg
+                    value={winUnit}
+                    onChange={setWinUnit}
+                    options={[
+                      { v: "m", label: "minutes" },
+                      { v: "h", label: "hours" },
+                    ]}
+                  />
+                </div>
               </div>
-              <p className="form-hint">Window is 5 minutes – 24 hours. The window is also the alert's lifetime.</p>
+              <p className="form-hint">Window is 5 minutes – 24 hours. The window is also the alert&apos;s lifetime.</p>
             </>
           )}
 
           {kind === "absolute" && <p className="form-hint">{unit.hint}</p>}
 
-          {error && <div className="form-error">{error}</div>}
+          {error && <div className="form-error" role="alert">{error}</div>}
 
           <button className="btn-primary" type="submit" disabled={busy}>
             {busy ? "Creating…" : "Create alert"}

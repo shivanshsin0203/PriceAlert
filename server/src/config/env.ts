@@ -16,12 +16,13 @@ const EnvSchema = z.object({
 
   REDIS_URL: z.string(), // required (persistence phase)
 
-  // TODO: make required as each feature lands (ARCHITECTURE.md §15)
-  JWT_SECRET: z.string().min(32).optional(),
-  INTERNAL_API_SECRET: z.string().min(16).optional(),
+  // Auth phase (§4.1, §6): JWT_SECRET is SHARED with the Next BFF (it verifies the
+  // cookie; we mint + verify on /api). INTERNAL_API_SECRET proves the caller is our BFF.
+  JWT_SECRET: z.string().min(32),
+  INTERNAL_API_SECRET: z.string().min(16),
   TELEGRAM_BOT_TOKEN: z.string(), // required (bot phase)
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
-  TELEGRAM_BOT_USERNAME: z.string().optional(),
+  TELEGRAM_BOT_USERNAME: z.string().optional(), // deep-link linking needs it (t.me/<username>?start=…)
   DEEPSEEK_API_KEY: z.string(), // required (brain phase)
   PUBLIC_BASE_URL: z.string().url().optional(),
 

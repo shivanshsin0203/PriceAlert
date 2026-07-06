@@ -46,6 +46,14 @@ export type AlertHistoryResp = {
 
 export type SymbolGroups = { groups: { label: string; symbols: { symbol: string; name: string }[] }[] };
 
+export type MeDTO = {
+  email: string | null;
+  name: string | null;
+  avatarUrl: string | null;
+  currency: "USD" | "EUR" | "INR";
+  telegram: { linked: boolean; username: string | null };
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -90,4 +98,6 @@ export const api = {
   dismissNotification: (id: string) => apiFetch<{ ok: boolean }>(`notifications/${id}`, { method: "DELETE" }),
   setCurrency: (currency: "USD" | "EUR" | "INR") =>
     apiFetch<{ ok: boolean; currency: string }>("me/currency", { method: "POST", body: JSON.stringify({ currency }) }),
+  me: () => apiFetch<MeDTO>("me"),
+  telegramLinkToken: () => apiFetch<{ url: string }>("me/telegram/link-token", { method: "POST" }),
 };

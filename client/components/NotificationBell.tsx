@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type NotificationDTO } from "../lib/api";
+import { BellIcon } from "./icons";
 
 // The bell — a reader over the inapp delivery rows the engine already writes.
 // Badge = unread count (polled by the parent); opening the panel marks all read;
@@ -58,8 +59,8 @@ export default function NotificationBell({
 
   return (
     <div className="bell-wrap" ref={boxRef}>
-      <button className="bell-btn" onClick={toggle} title="Notifications">
-        🔔
+      <button className="bell-btn" onClick={toggle} title="Notifications" aria-label={`Notifications${unread > 0 ? ` (${unread} unread)` : ""}`}>
+        <BellIcon size={18} />
         {unread > 0 && <span className="bell-badge">{unread > 99 ? "99+" : unread}</span>}
       </button>
 
@@ -71,10 +72,12 @@ export default function NotificationBell({
           {items?.map((n) => (
             <div key={n.id} className={`notif ${n.read ? "" : "notif-unread"}`}>
               <div className="notif-body">
-                <div className="notif-kind">{n.kind === "fire" ? "🔔 Fired" : "⌛ Expired"} · {new Date(n.firedAt).toLocaleString()}</div>
+                <div className="notif-kind">
+                  <b>{n.kind === "fire" ? "● FIRED" : "○ EXPIRED"}</b> · {new Date(n.firedAt).toLocaleString()}
+                </div>
                 <div className="notif-text">{n.text}</div>
               </div>
-              <button className="icon-btn" title="Delete" onClick={() => dismiss(n.id)}>✕</button>
+              <button className="icon-btn" title="Delete" aria-label="Delete notification" onClick={() => dismiss(n.id)}>✕</button>
             </div>
           ))}
         </div>

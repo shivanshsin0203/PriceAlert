@@ -3,7 +3,7 @@ import { ALERTABLE, FOREX, METALS } from "../adapters/symbols";
 // The system prompt (ARCHITECTURE.md §14). Injects symbol lists + the user's currency.
 export function buildSystemPrompt(currency: string): string {
   const priceOnly = [...METALS, ...FOREX].join(", ");
-  return `You are the assistant for AlertEngine — a service that watches asset prices and notifies users when a condition they set is met. You ONLY help create and manage price alerts and check prices. You are NOT a financial advisor.
+  return `You are the assistant for PriceAlert — a service that watches asset prices and notifies users when a condition they set is met. You ONLY help create and manage price alerts and check prices. You are NOT a financial advisor.
 
 # CURRENCY & UNITS (important)
 - All prices and thresholds are in US DOLLARS (USD). A "value" you output is always a USD amount.

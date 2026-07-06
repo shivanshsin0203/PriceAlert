@@ -17,7 +17,11 @@ import { fmtPrice } from "./format";
 // on UNIQUE(alert_id, channel), and the replay just completes the removeActive.
 
 const api = new Api(env.TELEGRAM_BOT_TOKEN);
-const CHANNELS: Channel[] = ["telegram", "inapp"];
+
+// Both channels when the owner has Telegram linked; in-app only otherwise (a Google-only
+// user gets no dead "failed" telegram rows). Linking later + rehydrate restores symmetry
+// for everything still active — the hot copy's chatId is refreshed in place.
+const channelsFor = (a: HotAlert): Channel[] => (a.chatId == null ? ["inapp"] : ["telegram", "inapp"]);
 
 // Deliveries are sent with parse_mode HTML (bold at a glance). Our own text is
 // controlled; only the AI sentence gets escaped before it's embedded.
@@ -52,7 +56,7 @@ export function buildExpiryText(a: HotAlert, current: number | null): string {
 // ── fire / expire (called by the watcher tick) ──
 
 async function finalize(a: HotAlert, kind: "fire" | "expiry", text: string, current: number | null): Promise<void> {
-  for (const channel of CHANNELS) {
+  for (const channel of channelsFor(a)) {
     const d = await insertPending({
       alertId: a.id,
       userId: a.userId,
@@ -111,7 +115,7 @@ function expiryLine(a: HotAlert, current: number | null): string {
   return `<b>${label(c.symbol)}</b> ${m} (needed ${c.dir === "up" ? "+" : "−"}${c.pct}% in ${c.window.value}${c.window.unit})`;
 }
 
-export type PreparedExpiry = { chatId: number; deliveryId: string | null; line: string };
+export type PreparedExpiry = { chatId: number | null; deliveryId: string | null; line: string };
 
 // Batch-aware expiry (user decision: batch ⌛ pings, never 🔔 fires). Durable rows are
 // still ONE PER ALERT (inbox + UNIQUE dedupe guard untouched) — only the telegram SEND
@@ -127,7 +131,7 @@ export async function prepareExpiry(a: HotAlert, current: number | null): Promis
 
   const text = buildExpiryText(a, current);
   let telegramId: string | null = null;
-  for (const channel of CHANNELS) {
+  for (const channel of channelsFor(a)) {
     const d = await insertPending({
       alertId: a.id,
       userId: a.userId,

@@ -9,11 +9,12 @@ import { findOrCreateByChatId, setCurrency, type BotUser } from "../models/users
 import { createAlert, deleteAlert, listAlerts } from "../services/alert.service";
 import { describeAlert, fmtPrice, money, type Currency } from "../services/format";
 import { getPrices } from "../services/price.service";
+import { consumeLinkToken } from "../services/telegram-link.service";
 
 // DEV bot (long-polling). Alerts now persist in Postgres, are mirrored to Redis,
 // and the watcher fires them for real. Every failure path replies something useful.
 
-const START = `👋 Welcome to AlertEngine (dev build)
+const START = `👋 Welcome to PriceAlert (dev build)
 
 I watch asset prices and ping you when your condition hits. Just talk to me in plain English.
 
@@ -156,7 +157,23 @@ async function execute(
 export function createBot() {
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
 
-  bot.command("start", (ctx) => ctx.reply(START));
+  // /start <token> = the dashboard's deep-link account binding (§13); bare /start = intro.
+  bot.command("start", async (ctx) => {
+    const token = ctx.match.trim();
+    if (!token) return void (await ctx.reply(START));
+    try {
+      const r = await consumeLinkToken(token, ctx.chat.id, ctx.from?.username);
+      if (!r.ok) return void (await ctx.reply(`⚠️ Couldn't link this Telegram: ${r.reason}`));
+      if (r.already) return void (await ctx.reply("✅ This Telegram is already connected to your account."));
+      const merged = r.mergedAlerts > 0 ? `\n📦 ${r.mergedAlerts} existing alert${r.mergedAlerts === 1 ? "" : "s"} from this chat moved to your account.` : "";
+      await ctx.reply(
+        `🔗 Connected! This Telegram is now linked to your dashboard account — alerts fire here AND in the web app.${merged}\n\nSend /help to see what I can do.`,
+      );
+    } catch (e) {
+      plog.error(`bot: link failed for chat ${ctx.chat.id} — ${(e as Error).message}`);
+      await ctx.reply("⚠️ Linking failed on my side — nothing was changed. Please try the dashboard link again.");
+    }
+  });
   bot.command("help", (ctx) => ctx.reply(HELP));
   bot.command("assets", (ctx) => ctx.reply(ASSETS));
   bot.command("list", async (ctx) => {

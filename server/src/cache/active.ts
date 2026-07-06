@@ -9,7 +9,7 @@ import { redis } from "./redis";
 export type HotAlert = {
   id: string; // alerts.id (uuid)
   userId: string;
-  chatId: number;
+  chatId: number | null; // null = owner has no Telegram link (in-app delivery only)
   condition: Condition;
   anchorPrice: number;
   createdAt: number; // ms epoch
@@ -26,7 +26,7 @@ export async function addActive(a: HotAlert): Promise<void> {
     .hset(key(a.id), {
       id: a.id,
       userId: a.userId,
-      chatId: String(a.chatId),
+      chatId: a.chatId == null ? "" : String(a.chatId), // "" = no telegram link
       condition: JSON.stringify(a.condition),
       anchorPrice: String(a.anchorPrice),
       createdAt: String(a.createdAt),
@@ -63,7 +63,7 @@ export async function getActive(): Promise<{ alerts: HotAlert[]; missing: string
       alerts.push({
         id,
         userId: h.userId,
-        chatId: Number(h.chatId),
+        chatId: h.chatId ? Number(h.chatId) : null,
         condition: JSON.parse(h.condition) as Condition,
         anchorPrice: Number(h.anchorPrice),
         createdAt: Number(h.createdAt),
