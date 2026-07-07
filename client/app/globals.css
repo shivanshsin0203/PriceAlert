@@ -787,6 +787,24 @@ a { color: inherit; }
 .user-tg { padding: 11px 16px; color: var(--muted); font-size: 13px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
 .user-tg svg { color: var(--tg); flex: none; }
 .user-tg-on { color: var(--text); }
+.user-unlink {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+  font-size: 13px;
+  font-family: var(--font-sans-stack);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.user-unlink:hover { background: var(--surface-2); color: var(--text); }
+.user-unlink-arm, .user-unlink-arm:hover { color: var(--brand); background: var(--brand-dim); }
+.user-unlink:disabled { opacity: 0.6; cursor: default; }
+
 .user-signout { display: block; padding: 12px 16px; font-size: 13px; color: var(--down); text-decoration: none; font-weight: 500; }
 .user-signout:hover { background: var(--down-dim); }
 

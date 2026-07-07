@@ -9,7 +9,7 @@ import { findOrCreateByChatId, setCurrency, type BotUser } from "../models/users
 import { createAlert, deleteAlert, listAlerts } from "../services/alert.service";
 import { describeAlert, fmtPrice, money, type Currency } from "../services/format";
 import { getPrices } from "../services/price.service";
-import { consumeLinkToken } from "../services/telegram-link.service";
+import { consumeLinkToken, maskEmail, unlinkByChat } from "../services/telegram-link.service";
 
 // DEV bot (long-polling). Alerts now persist in Postgres, are mirrored to Redis,
 // and the watcher fires them for real. Every failure path replies something useful.
@@ -33,7 +33,7 @@ I watch asset prices and ping you when your condition hits. Just talk to me in p
  • Indian stocks: Reliance, TCS, HDFC Bank, Zomato, Swiggy, Paytm… (15)
  • NIFTY, OIL · price-only: gold, silver, USD↔EUR/INR/JPY/CNY/SGD
 
-⌨️ /start · /help · /list · /price · /assets
+⌨️ /start · /help · /list · /price · /assets · /unlink
 
 ⚠️ DEV BUILD: alerts are saved and WILL fire — I check prices every minute and ping you here. Each reply shows the FUNCTION + INPUT the AI picked. Not financial advice.`;
 
@@ -164,10 +164,12 @@ export function createBot() {
     try {
       const r = await consumeLinkToken(token, ctx.chat.id, ctx.from?.username);
       if (!r.ok) return void (await ctx.reply(`⚠️ Couldn't link this Telegram: ${r.reason}`));
-      if (r.already) return void (await ctx.reply("✅ This Telegram is already connected to your account."));
+      if (r.already) {
+        return void (await ctx.reply(`✅ This Telegram is already connected to ${maskEmail(r.email)}.`));
+      }
       const merged = r.mergedAlerts > 0 ? `\n📦 ${r.mergedAlerts} existing alert${r.mergedAlerts === 1 ? "" : "s"} from this chat moved to your account.` : "";
       await ctx.reply(
-        `🔗 Connected! This Telegram is now linked to your dashboard account — alerts fire here AND in the web app.${merged}\n\nSend /help to see what I can do.`,
+        `🔗 Connected! This chat is now linked to ${maskEmail(r.email)} — alerts fire here AND in the web app.${merged}\n\n⚠️ Not you? Send /unlink to disconnect immediately.\nSend /help to see what I can do.`,
       );
     } catch (e) {
       plog.error(`bot: link failed for chat ${ctx.chat.id} — ${(e as Error).message}`);
@@ -184,9 +186,38 @@ export function createBot() {
   });
   bot.command("price", (ctx) => ctx.reply('💰 Just ask, e.g. "what\'s BTC?" or "prices of gold and oil".'));
 
+  // /unlink — user-controlled revocation of the web-account binding (confirm first;
+  // it's recoverable via the dashboard, but a mis-tap shouldn't cut delivery silently).
+  bot.command("unlink", async (ctx) => {
+    await ctx.reply(
+      "🔓 Disconnect this chat from its web account?\n\nYour alerts stay in the web account and keep firing to the in-app inbox — they just stop pinging here. You can re-link anytime from the dashboard.",
+      { reply_markup: new InlineKeyboard().text("Yes, disconnect", "unlink:yes").text("Cancel", "unlink:no") },
+    );
+  });
+
   // 🗑 button taps — deterministic, no LLM (the alert uuid rides in callback_data)
   bot.on("callback_query:data", async (ctx) => {
     const data = ctx.callbackQuery.data;
+    if (data === "unlink:yes") {
+      try {
+        const r = await unlinkByChat(ctx.chat!.id);
+        await ctx.answerCallbackQuery({ text: r.ok ? "Disconnected ✓" : "Nothing to disconnect" });
+        await ctx.editMessageText(
+          r.ok
+            ? `🔓 Disconnected from ${maskEmail(r.email)}. Alerts now go to the web inbox only — re-link anytime from the dashboard.`
+            : `⚠️ ${r.reason}`,
+        );
+      } catch (e) {
+        plog.error(`bot: unlink failed — ${(e as Error).message}`);
+        await ctx.answerCallbackQuery({ text: "Couldn't disconnect — try again." });
+      }
+      return;
+    }
+    if (data === "unlink:no") {
+      await ctx.answerCallbackQuery({ text: "Kept ✓" });
+      await ctx.editMessageText("👍 Still connected — nothing changed.");
+      return;
+    }
     if (data.startsWith("del:")) {
       const id = data.slice(4);
       const user = await resolveUser(ctx.chat!.id, ctx.from?.username);
@@ -253,6 +284,7 @@ export async function startBot() {
     { command: "list", description: "My alerts (with delete buttons)" },
     { command: "price", description: "Get a price" },
     { command: "assets", description: "Everything I can watch" },
+    { command: "unlink", description: "Disconnect this chat from the web account" },
   ]);
   plog.bot("Telegram bot starting (long-polling, dev)…");
   await bot.start({ onStart: (info) => plog.bot(`@${info.username} is live ✓`) });

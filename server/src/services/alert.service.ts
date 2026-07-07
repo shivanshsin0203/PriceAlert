@@ -2,8 +2,10 @@ import { isMarketOpen } from "../adapters/market";
 import { getPrice } from "../adapters/registry";
 import { nameOf } from "../adapters/symbols";
 import { addActive, removeActive, type HotAlert } from "../cache/active";
+import { bumpCreateQuota, checkCreateQuota } from "../cache/ratelimit";
 import type { Condition } from "../brain/schema";
 import { windowMinutes } from "../brain/schema";
+import { CREATES_PER_HOUR } from "../config/constants";
 import { plog } from "../lib/logger";
 import { cancelAlert, insertAlert, listActiveByUser, loadActiveWithChat, type AlertRow } from "../models/alerts.repo";
 import type { BotUser } from "../models/users.repo";
@@ -28,6 +30,15 @@ const rowToItem = (row: AlertRow): AlertItem => ({
 // Create with live-price validation (guards unchanged), then PG (truth) → Redis (hot).
 // Every failure path returns a specific, friendly reason — the bot never goes silent.
 export async function createAlert(user: BotUser, cond: Condition): Promise<CreateResult> {
+  // 0) rate limit — cheapest guard first; the reason surfaces verbatim on bot AND dashboard
+  const quota = await checkCreateQuota(user.userId);
+  if (!quota.allowed) {
+    return {
+      ok: false,
+      reason: `you've hit the cap of ${CREATES_PER_HOUR} new alerts per hour — try again in about ${quota.resetMinutes} min. Your existing alerts are still being watched as normal`,
+    };
+  }
+
   // 1) live price — required to validate and to anchor pct_change
   let current: number;
   try {
@@ -74,6 +85,7 @@ export async function createAlert(user: BotUser, cond: Condition): Promise<Creat
   try {
     row = await insertAlert({ userId: user.userId, condition: cond, anchorPrice: current, expiresAt });
     plog.pg(`alert ${row.id.slice(0, 8)} saved (${cond.symbol} ${cond.kind}) for user ${user.userId.slice(0, 8)}`);
+    await bumpCreateQuota(user.userId); // successful creates only — guard failures don't burn quota
   } catch (e) {
     plog.error(`create: PG insert failed — ${(e as Error).message}`);
     return {

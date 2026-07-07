@@ -1,25 +1,46 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { MeDTO } from "../lib/api";
+import { api, type MeDTO } from "../lib/api";
 import { TelegramIcon } from "./icons";
 
 // Avatar chip + dropdown (profile, telegram status, sign out). In dev-fallback mode
 // (email null — the server's DASHBOARD_CHAT_ID identity) there is no session to end,
 // so the sign-out link is hidden and the chip says so.
+// "Disconnect Telegram" is two-tap (arm, then confirm) — recoverable, but a mis-click
+// shouldn't silently cut phone delivery.
 
-export default function UserMenu({ me }: { me: MeDTO }) {
+export default function UserMenu({ me, onUnlinked }: { me: MeDTO; onUnlinked?: () => void }) {
   const [open, setOpen] = useState(false);
+  const [arming, setArming] = useState(false);
+  const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setArming(false);
+      return;
+    }
     const close = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [open]);
+
+  async function unlink() {
+    if (!arming) return setArming(true);
+    setBusy(true);
+    try {
+      await api.telegramUnlink();
+      setOpen(false);
+      onUnlinked?.();
+    } catch {
+      /* transient — the menu stays open, user can retry */
+    }
+    setBusy(false);
+    setArming(false);
+  }
 
   const initial = (me.name ?? me.email ?? "D").charAt(0).toUpperCase();
 
@@ -45,6 +66,11 @@ export default function UserMenu({ me }: { me: MeDTO }) {
               ? `Telegram connected${me.telegram.username ? ` · @${me.telegram.username}` : ""}`
               : "Telegram not connected"}
           </div>
+          {me.telegram.linked && (
+            <button className={`user-unlink${arming ? " user-unlink-arm" : ""}`} onClick={unlink} disabled={busy}>
+              {busy ? "Disconnecting…" : arming ? "Tap again to confirm disconnect" : "Disconnect Telegram"}
+            </button>
+          )}
           {me.email && (
             <a className="user-signout" href="/api/auth/logout">
               Sign out

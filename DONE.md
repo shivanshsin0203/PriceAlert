@@ -106,6 +106,11 @@
 - Verified: both typechecks clean; landing/support/icon 200 on dev; dashboard 307 w/o session.
   (`next build` NOT run — dev server was live; run it before deploy.)
 
+## Hardening (2026-07-06, same session as 8.5)
+
+- **Rate limit**: 15 successful alert-creations/hour/user (`CREATES_PER_HOUR` in constants) — enforced at the top of `createAlert`, so bot AND dashboard share it; guard failures don't burn quota; fail-open on Redis errors; friendly reason surfaces verbatim on both. Live-tested: 16 rapid creates → 15×201 + 422. Bulk bot creates can eat the whole quota in one message (cap = one constant if that ever hurts).
+- **Telegram revocation + visibility** (the "bot never logs out" answer — expiry is wrong, revocation is right): bot `/unlink` (inline-keyboard confirm; placeholder chats refused — their link IS their identity), dashboard **Disconnect Telegram** in the user menu (two-tap confirm, `POST /api/me/telegram/unlink`, idempotent) which also notifies the chat it was cut off; link-success replies now name the account (masked email `sin…@gmail.com`) + "Not you? /unlink". Unlink keeps alerts on the account (in-app delivery continues; rehydrate nulls hot-copy chatId). `smoke.link.ts` grew to **13 checks** (unlink by chat/user, idempotency, refusals).
+
 ## Known trade-offs (deliberate, not bugs)
 
 - Bell ≤20s behind Telegram (poll vs push). SSE is the upgrade path if ever wanted.

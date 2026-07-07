@@ -113,7 +113,16 @@ export default function DashboardPage() {
             </select>
             <NotificationBell unread={unread} onUnreadCleared={() => setUnread(0)} />
             <button className="btn-primary" onClick={() => setShowCreate(true)}>+ New alert</button>
-            {me && <UserMenu me={me} />}
+            {me && (
+              <UserMenu
+                me={me}
+                onUnlinked={() => {
+                  setNote("🔓 Telegram disconnected — alerts now land in the bell inbox only. Re-link anytime below.");
+                  setTimeout(() => setNote(null), 8000);
+                  refresh();
+                }}
+              />
+            )}
           </div>
         </div>
       </header>

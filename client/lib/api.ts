@@ -100,4 +100,5 @@ export const api = {
     apiFetch<{ ok: boolean; currency: string }>("me/currency", { method: "POST", body: JSON.stringify({ currency }) }),
   me: () => apiFetch<MeDTO>("me"),
   telegramLinkToken: () => apiFetch<{ url: string }>("me/telegram/link-token", { method: "POST" }),
+  telegramUnlink: () => apiFetch<{ ok: boolean; wasLinked: boolean }>("me/telegram/unlink", { method: "POST" }),
 };

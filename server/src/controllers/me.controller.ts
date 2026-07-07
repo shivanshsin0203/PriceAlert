@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { AppError } from "../lib/errors";
 import { findAuthUser, setCurrency } from "../models/users.repo";
-import { createLinkToken } from "../services/telegram-link.service";
+import { createLinkToken, unlinkByUser } from "../services/telegram-link.service";
 
 const wrap =
   (fn: (req: Request, res: Response) => Promise<void>) => (req: Request, res: Response, next: NextFunction) =>
@@ -38,4 +38,11 @@ export const telegramLinkToken = wrap(async (req, res) => {
   const r = await createLinkToken(req.user!.userId);
   if (!r.ok) throw new AppError(r.reason, 503);
   res.json({ url: r.url });
+});
+
+// POST /api/me/telegram/unlink — revoke the binding (idempotent). The chat is notified;
+// alerts keep firing to the in-app inbox.
+export const telegramUnlink = wrap(async (req, res) => {
+  const r = await unlinkByUser(req.user!.userId);
+  res.json({ ok: true, wasLinked: r.wasLinked });
 });

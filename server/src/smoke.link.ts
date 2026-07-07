@@ -4,7 +4,7 @@ import { db, pool } from "./models/db";
 import { alerts, deliveries, telegramLinks, users } from "./models/schema";
 import { findAuthUser } from "./models/users.repo";
 import { removeActive } from "./cache/active";
-import { consumeLinkToken, createLinkToken } from "./services/telegram-link.service";
+import { consumeLinkToken, createLinkToken, unlinkByChat, unlinkByUser } from "./services/telegram-link.service";
 
 // Smoke: Telegram deep-link linking + placeholder merge (auth phase).
 // Entirely synthetic (fake chat id, fake google user) — creates, merges, verifies, CLEANS UP.
@@ -73,6 +73,16 @@ async function main() {
       const relink = await consumeLinkToken(t2, FAKE_CHAT, "smokelink");
       check("re-linking same chat → already", relink.ok && relink.already);
     }
+
+    // ── unlink (revocation — the /unlink + dashboard-disconnect path) ──
+    const un = await unlinkByChat(FAKE_CHAT);
+    check("unlink by chat → ok, reports owner email", un.ok && un.email === "smoke-link@test.local");
+    const meAfter = await findAuthUser(google.id);
+    check("link gone after unlink", meAfter != null && meAfter.chatId == null);
+    const unAgain = await unlinkByChat(FAKE_CHAT);
+    check("unlink twice → friendly refusal", !unAgain.ok);
+    const unByUser = await unlinkByUser(google.id);
+    check("dashboard unlink is idempotent", unByUser.ok && !unByUser.wasLinked);
   } finally {
     // ── cleanup: nothing synthetic survives ──
     await db.delete(deliveries).where(eq(deliveries.id, delivery.id)).catch(() => {});

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { COMMODITIES, CRYPTO, INDIA, INDICES, NAMES, STOCKS } from "../adapters/symbols";
-import { getMe, telegramLinkToken, updateCurrency } from "../controllers/me.controller";
+import { getMe, telegramLinkToken, telegramUnlink, updateCurrency } from "../controllers/me.controller";
 import { requireUser } from "../middleware/auth.middleware";
 import alertsRoute from "./alerts.route";
 import notificationsRoute from "./notifications.route";
@@ -32,5 +32,6 @@ apiRouter.use("/notifications", notificationsRoute);
 apiRouter.get("/me", getMe);
 apiRouter.post("/me/currency", updateCurrency);
 apiRouter.post("/me/telegram/link-token", telegramLinkToken);
+apiRouter.post("/me/telegram/unlink", telegramUnlink);
 
 export default apiRouter;
