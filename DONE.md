@@ -17,7 +17,7 @@
 | 7. Landing page + dashboard design pass | ✅ done 2026-07-05 (landing w/ sign-in, user menu, TG banner, CSS polish) |
 | 8. Auth (Google OAuth via BFF, JWT, deep-link Telegram binding) | ✅ built 2026-07-05 — 9-check link suite + curl seam tests; creds added; **pending: live browser test of consent + phone /start tap** |
 | 8.5 UI/UX + brand ("PriceAlert") | ✅ done 2026-07-06 — logo/favicon/OG/bot avatar, design system, landing + support + dashboard redesign |
-| 9. Deploy (VM + PM2 `ecosystem.config.js`, Vercel client) | ⬜ planned |
+| 9. Deploy (EC2 Mumbai + Docker Compose + nginx/certbot, Vercel client) | 🔶 code DONE 2026-07-07 — see `DEPLOY.md`; **pending: user's live auth test, domain purchase, EC2 launch, runbook execution** |
 
 ## Stack (locked — see ARCHITECTURE.md)
 
@@ -111,6 +111,17 @@
 - **Rate limit**: 15 successful alert-creations/hour/user (`CREATES_PER_HOUR` in constants) — enforced at the top of `createAlert`, so bot AND dashboard share it; guard failures don't burn quota; fail-open on Redis errors; friendly reason surfaces verbatim on both. Live-tested: 16 rapid creates → 15×201 + 422. Bulk bot creates can eat the whole quota in one message (cap = one constant if that ever hurts).
 - **Telegram revocation + visibility** (the "bot never logs out" answer — expiry is wrong, revocation is right): bot `/unlink` (inline-keyboard confirm; placeholder chats refused — their link IS their identity), dashboard **Disconnect Telegram** in the user menu (two-tap confirm, `POST /api/me/telegram/unlink`, idempotent) which also notifies the chat it was cut off; link-success replies now name the account (masked email `sin…@gmail.com`) + "Not you? /unlink". Unlink keeps alerts on the account (in-app delivery continues; rehydrate nulls hot-copy chatId). `smoke.link.ts` grew to **13 checks** (unlink by chat/user, idempotency, refusals).
 
+## Deploy code (phase 9 artifacts — written 2026-07-07, execution pending)
+
+- Decisions (user): **ap-south-1 Mumbai** (Binance geo-blocks US IPs — us-east-1 cannot fetch crypto), **t3.micro free tier** (+2G swap for builds), **nginx + certbot** (containers in compose; bootstrap http-only conf → cert → full conf), domain to be bought.
+- `server/Dockerfile` (multi-stage, node:22-alpine, dist-only runtime, non-root) + `.dockerignore`; `docker-compose.yml` at root (api/worker share one image, redis AOF+noeviction on named volume + never port-mapped, REDIS_URL injected as `redis://redis:6379`, log rotation 10m×3); `deploy/nginx.http.conf` + `deploy/nginx.conf` (API_DOMAIN placeholders).
+- `TELEGRAM_MODE=polling|webhook|off` (env.ts default polling; superRefine: webhook requires PUBLIC_BASE_URL + ≥16-char TELEGRAM_WEBHOOK_SECRET). Webhook = API process mounts grammY `webhookCallback` at `/bot` with secret-token check (app.ts, + `trust proxy`); worker polls only in polling mode. `src/scripts/set-webhook.ts` (`--info`/`--delete`; sets webhook + commands, drops pending).
+- Graceful shutdown: SIGTERM/SIGINT → bot.stop + BullMQ workers close + redis.quit (worker), server.close (api), 10s hard cap — docker stop is now clean.
+- `DEPLOY.md` = the full runbook (EC2 → DNS → swap → env → cert bootstrap → migrate-from-laptop → set-webhook → Vercel → prod smoke). Prod gets FRESH JWT/INTERNAL/webhook secrets; laptop switches to `TELEGRAM_MODE=off` + a Neon dev branch on deploy day. Runbook specifics locked 2026-07-07: **Hostinger** one-domain + `api.` subdomain model (registration only, DNS in hPanel), **Vercel CLI** flow (`vercel env add` + `vercel --prod`), certbot **`--staging` dry-run first** (LE 5-cert/week limit), AWS $5 billing alarm, env-safety note (server-only vars, never `NEXT_PUBLIC_`).
+- **Bot production polish (2026-07-07)**: `/start` `/help` `/assets` rewritten with HTML bold headers + clean spacing (escaped interpolated names — "Larsen & Toubro" has an `&` — via `escHtml`), removed "(dev build)" / "⚠️ DEV BUILD" language, added a web-app hint + `/unlink`. The `🔧 [dev]` function+args debug line + `━━━` divider now show **only when `NODE_ENV=development`** (clean in production). `START`/`HELP`/`ASSETS` replies pass `parse_mode: "HTML"`; dynamic AI/price replies stay plain (no escaping risk). tsc clean, 21/21 bold tags balanced.
+- **BotFather branding APPLIED by user 2026-07-07** ✅ (avatar/name/about/description per `brand/README.md`).
+- Verified: server tsc clean; API boots + health 200 with default env (dev behavior unchanged); client `next build` clean (pre-flight #2 ✅); hardening batch committed+pushed (`6b85b1d`). **Uncommitted**: bot polish + deploy artifacts + rate-limit/unlink.
+
 ## Known trade-offs (deliberate, not bugs)
 
 - Bell ≤20s behind Telegram (poll vs push). SSE is the upgrade path if ever wanted.
@@ -123,12 +134,12 @@
 
 - `/history` command in bot (deliveries table has everything; ~20 lines).
 - Parallelize AI-context calls when multiple alerts fire in one tick (serial ~1.5s each).
-- Per-user rate limiting before anything goes public.
-- Graceful shutdown (SIGTERM worker close).
+- ~~Per-user rate limiting~~ ✅ done (15/hr, §Hardening).
+- ~~Graceful shutdown (SIGTERM worker close)~~ ✅ done (§Deploy code).
 - Auth follow-up: live browser test of consent + `/dashboard` redirect + phone `/start` tap (merges the real chat-1764981523 placeholder into the Google account). Creds are in `client/.env.local`.
 - Landing NL alert box still a visual demo (no web NL create endpoint yet — planning.md §6/§14 wants NL creation on the web; the brain service exists, needs ~1 endpoint + 1 input wired on the dashboard).
 - planning.md §2 differentiator conditions (`rel_extreme`, `volatility`, `ma_cross`) + backtest: NOT built (v1 ships absolute + pct_change; ARCHITECTURE.md §16 step 5).
-- Telegram bot avatar/name: user applies `brand/README.md` BotFather steps (assets ready).
+- ~~Telegram bot avatar/name (BotFather)~~ ✅ applied by user 2026-07-07.
 - **One bot, not two (user decision 2026-07-06, FINAL)**: @Pricealert_devbot is THE bot in production too — keep the token, flip `TELEGRAM_MODE` polling→webhook at deploy. Agreed policy: bot-behavior changes are tested in production (solo-scale, own chat); engine/web work stays local against a separate Neon dev branch. **Phase-9 guard (required)**: `TELEGRAM_MODE=off` becomes the local default after deploy — grammY's `bot.start()` deletes an existing webhook, so a habitual local `npm run dev` with polling would silently kill the production bot.
 - **Deploy approach (user decision 2026-07-06)**: backend on **EC2 with Docker Compose** — one image built from `server/`, run as two services (`api` → `dist/server.js`, `worker` → `dist/worker.js`) + `redis:7-alpine` service with AOF on a **named volume** and `maxmemory-policy noeviction` (BullMQ requirement). Docker `restart: unless-stopped` replaces PM2 (ARCHITECTURE.md §2 "VM + PM2" amended). Client stays on Vercel.
-- `next build` before deploy (skipped this session — dev server was running).
+- ~~`next build` before deploy~~ ✅ verified clean 2026-07-07.

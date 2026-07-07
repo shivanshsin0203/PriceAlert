@@ -11,83 +11,83 @@ import { describeAlert, fmtPrice, money, type Currency } from "../services/forma
 import { getPrices } from "../services/price.service";
 import { consumeLinkToken, maskEmail, unlinkByChat } from "../services/telegram-link.service";
 
-// DEV bot (long-polling). Alerts now persist in Postgres, are mirrored to Redis,
-// and the watcher fires them for real. Every failure path replies something useful.
+// The bot. Alerts persist in Postgres, mirror to Redis, and the watcher fires them
+// for real. Every failure path replies something useful. Transport (polling vs webhook)
+// is chosen by the caller (worker = polling in dev, app = webhook in prod) — §19.
 
-const START = `👋 Welcome to PriceAlert (dev build)
+// Static messages use HTML parse_mode for bold headers; escape any interpolated name
+// ("Larsen & Toubro" has an &). Dynamic replies (AI text, prices) stay plain — no escaping risk.
+const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-I watch asset prices and ping you when your condition hits. Just talk to me in plain English.
+const START = `👋 <b>Welcome to PriceAlert</b>
 
-🔔 CREATE ALERTS  (thresholds in USD, window ≤ 24h)
- • "alert me when BTC goes above 70000"
- • "alert me if ETH drops 5% in 1h"
- • bulk works too: "alert me if top 6 crypto rise 5% in 1h"
+I watch asset prices and ping you the moment your condition hits — just tell me in plain English.
 
-💰 GET PRICES — "what's SOL at?" · "prices of gold, oil and nifty"
-💱 CURRENCY — "switch to INR" (display only: USD / EUR / INR)
-📋 MANAGE — "show my alerts" → tap 🗑 to delete
+🔔 <b>Create alerts</b>
+   • "alert me when BTC goes above 70000"
+   • "alert me if ETH drops 5% in 1h"
+   • bulk works: "alert me if top 6 crypto rise 5% in 1h"
 
-📈 ASSETS
- • Crypto: BTC ETH SOL BNB XRP ADA DOGE LTC LINK DOT AVAX TRX TON
- • US stocks: Apple, Microsoft, Nvidia, Tesla, Google… (15)
- • Indian stocks: Reliance, TCS, HDFC Bank, Zomato, Swiggy, Paytm… (15)
- • NIFTY, OIL · price-only: gold, silver, USD↔EUR/INR/JPY/CNY/SGD
+💰 <b>Prices</b>  —  "what's SOL at?" · "prices of gold, oil and nifty"
+💱 <b>Currency</b>  —  "switch to INR"  (display only: USD / EUR / INR)
+📋 <b>Manage</b>  —  "show my alerts" → tap 🗑 to delete
+🔗 <b>Web app</b>  —  link the dashboard for the same alerts on both
 
-⌨️ /start · /help · /list · /price · /assets · /unlink
+📈 <b>Assets</b>
+   • Crypto: BTC, ETH, SOL, BNB, XRP, ADA, DOGE +6
+   • US stocks: Apple, Microsoft, Nvidia, Tesla… (15)
+   • Indian stocks: Reliance, TCS, HDFC Bank, Zomato… (15)
+   • NIFTY, Oil · price-only: gold, silver, forex
 
-⚠️ DEV BUILD: alerts are saved and WILL fire — I check prices every minute and ping you here. Each reply shows the FUNCTION + INPUT the AI picked. Not financial advice.`;
+⌨️  /help  ·  /list  ·  /price  ·  /assets  ·  /unlink
 
-const HELP = `📖 HOW TO USE ME EFFECTIVELY
+Alerts fire once, then they're done — no spam.
+<i>Not financial advice.</i>`;
 
-🥇 The golden rule: put SYMBOL + CONDITION (+ TIMEFRAME for % alerts) in ONE message.
+const HELP = `📖 <b>How to use me</b>
 
-✅ GOOD — I'll act instantly:
- • "alert me when btc goes above 70000"
- • "eth drops 5% in 2 hours"
- • "btc < 55k"  (shorthand works: k, lakh, >, <)
- • "alert me if top 6 crypto rise 5% in 1h"  (bulk: up to 15 at once)
- • "prices of gold, oil and nifty"
+🥇 <b>The golden rule</b> — put SYMBOL + CONDITION (+ TIMEFRAME for % alerts) in one message.
 
-❌ VAGUE — I'll have to ask follow-ups:
- • "alert me on bitcoin"  (no condition)
- • "eth drops 5%"  (no timeframe)
- • "apple at 10"  ($10 or 10%?)
- • "alert when it goes crazy"  (crazy = how many %, in how long?)
+✅ <b>Clear — I act instantly</b>
+   • "alert me when btc goes above 70000"
+   • "eth drops 5% in 2 hours"
+   • "btc &lt; 55k"   (shorthand: k, lakh, &gt;, &lt;)
+   • "alert me if top 6 crypto rise 5% in 1h"   (bulk: up to 15)
+   • "prices of gold, oil and nifty"
 
-📏 MY RULES
- • Thresholds are in USD. "55k" = 55,000 · "1 lakh" = 100,000. (Indian stocks & NIFTY are in ₹.)
- • % alerts need a timeframe between 5 minutes and 24 hours.
- • Stocks & NIFTY are only evaluated during market hours; crypto is 24/7.
- • I create alerts I can verify: if your condition is ALREADY true, I'll flag it instead of firing instantly.
- • Alerts fire once, then they're done. Max lifetime 24h — if the window ends without firing, I'll tell you that too.
- • You can write in any language — Hinglish works fine.
+❓ <b>Vague — I'll ask a follow-up</b>
+   • "alert me on bitcoin"   (no condition)
+   • "eth drops 5%"   (no timeframe)
+   • "apple at 10"   ($10 or 10%?)
 
-⌨️ SLASH COMMANDS
- /start – intro & capabilities
- /help – this guide
- /list – your alerts, each with a 🗑 delete button
- /price – how to ask for prices
- /assets – everything I can watch
+📏 <b>The rules</b>
+   • Thresholds in USD — "55k" = 55,000, "1 lakh" = 100,000. Indian stocks &amp; NIFTY in ₹.
+   • % alerts need a window between 5 minutes and 24 hours.
+   • Stocks &amp; NIFTY evaluate during market hours; crypto is 24/7.
+   • If your condition is already true, I flag it instead of firing instantly.
+   • Alerts fire once, max lifetime 24h. Any language works — Hinglish is fine.
+
+⌨️ <b>Commands</b>
+   /list · /price · /assets · /unlink
 
 💬 Everything else — just say it in plain English.`;
 
-const ASSETS = `📈 SUPPORTED ASSETS
+const ASSETS = `📈 <b>Supported assets</b>
 
-🪙 Crypto (24/7, alerts + prices):
- ${CRYPTO.join(" · ")}
+🪙 <b>Crypto</b>  —  24/7 · alerts + prices
+   ${escHtml(CRYPTO.join(" · "))}
 
-🏢 US stocks (US market hours, alerts + prices):
- ${STOCKS.map(nameOf).join(" · ")}
+🏢 <b>US stocks</b>  —  market hours · alerts + prices
+   ${escHtml(STOCKS.map(nameOf).join(" · "))}
 
-🇮🇳 Indian stocks (NSE hours, alerts + prices):
- ${INDIA.map(nameOf).join(" · ")}
+🇮🇳 <b>Indian stocks</b>  —  NSE hours · alerts + prices
+   ${escHtml(INDIA.map(nameOf).join(" · "))}
 
-📊 Index: Nifty 50 · 🛢 Commodity: Crude Oil
+📊 <b>Index:</b> Nifty 50    🛢 <b>Commodity:</b> Crude Oil
+🥇 <b>Metals</b> (prices only): ${escHtml(METALS.join(" · "))}
+💱 <b>Forex</b> (prices only): ${escHtml(FOREX.join(" · "))}
 
-🥇 Metals (prices only): ${METALS.join(" · ")}
-💱 Forex (prices only): ${FOREX.join(" · ")}
-
-All prices/thresholds in USD (display in USD/EUR/INR via "switch to …").`;
+All thresholds in USD — display in USD / EUR / INR via "switch to …".`;
 
 const DB_TROUBLE =
   "⚠️ I'm having trouble reaching my database right now — nothing was changed. Please try again in a moment.";
@@ -160,7 +160,7 @@ export function createBot() {
   // /start <token> = the dashboard's deep-link account binding (§13); bare /start = intro.
   bot.command("start", async (ctx) => {
     const token = ctx.match.trim();
-    if (!token) return void (await ctx.reply(START));
+    if (!token) return void (await ctx.reply(START, { parse_mode: "HTML" }));
     try {
       const r = await consumeLinkToken(token, ctx.chat.id, ctx.from?.username);
       if (!r.ok) return void (await ctx.reply(`⚠️ Couldn't link this Telegram: ${r.reason}`));
@@ -176,8 +176,8 @@ export function createBot() {
       await ctx.reply("⚠️ Linking failed on my side — nothing was changed. Please try the dashboard link again.");
     }
   });
-  bot.command("help", (ctx) => ctx.reply(HELP));
-  bot.command("assets", (ctx) => ctx.reply(ASSETS));
+  bot.command("help", (ctx) => ctx.reply(HELP, { parse_mode: "HTML" }));
+  bot.command("assets", (ctx) => ctx.reply(ASSETS, { parse_mode: "HTML" }));
   bot.command("list", async (ctx) => {
     const user = await resolveUser(ctx.chat.id, ctx.from?.username);
     if (!user) return void (await ctx.reply(DB_TROUBLE));
@@ -266,26 +266,36 @@ export function createBot() {
     await pushTurn(chatId, { role: "user", content: text });
     await pushTurn(chatId, { role: "assistant", content: `${r.message}${extra}` });
 
-    const dev = r.action.name
-      ? `🔧 [dev] ${r.action.name} ${JSON.stringify(r.action.args)}`
-      : "🔧 [dev] (none — chat / clarify / refusal)";
-    await ctx.reply(`${r.message}${extra}\n\n━━━━━━━━━━━━━━\n${dev}`, { reply_markup: keyboard });
+    // Production: clean reply. Development: append the function + args the AI picked, so
+    // local debugging still shows the routing (hidden the moment NODE_ENV=production).
+    const body = `${r.message}${extra}`;
+    const reply =
+      env.NODE_ENV === "development"
+        ? `${body}\n\n─────\n🔧 ${r.action.name ? `${r.action.name} ${JSON.stringify(r.action.args)}` : "(none — chat / clarify / refusal)"}`
+        : body;
+    await ctx.reply(reply, { reply_markup: keyboard });
   });
 
   bot.catch((err) => plog.error("bot error:", err.error));
   return bot;
 }
 
-export async function startBot() {
+// Shared with scripts/set-webhook.ts (webhook mode registers commands there).
+export const BOT_COMMANDS = [
+  { command: "start", description: "What I can do" },
+  { command: "help", description: "How to use me effectively" },
+  { command: "list", description: "My alerts (with delete buttons)" },
+  { command: "price", description: "Get a price" },
+  { command: "assets", description: "Everything I can watch" },
+  { command: "unlink", description: "Disconnect this chat from the web account" },
+];
+
+// Long-polling transport (TELEGRAM_MODE=polling — local dev only; §19).
+// Returns the Bot so the worker can stop() it on SIGTERM.
+export async function startBot(): Promise<Bot> {
   const bot = createBot();
-  await bot.api.setMyCommands([
-    { command: "start", description: "What I can do" },
-    { command: "help", description: "How to use me effectively" },
-    { command: "list", description: "My alerts (with delete buttons)" },
-    { command: "price", description: "Get a price" },
-    { command: "assets", description: "Everything I can watch" },
-    { command: "unlink", description: "Disconnect this chat from the web account" },
-  ]);
+  await bot.api.setMyCommands(BOT_COMMANDS);
   plog.bot("Telegram bot starting (long-polling, dev)…");
-  await bot.start({ onStart: (info) => plog.bot(`@${info.username} is live ✓`) });
+  void bot.start({ onStart: (info) => plog.bot(`@${info.username} is live ✓`) });
+  return bot;
 }

@@ -1,0 +1,70 @@
+# PriceAlert production stack (ARCHITECTURE.md §19) — EC2 + Docker Compose.
+# One image, two Node services; Redis with AOF on a named volume (never port-mapped);
+# nginx terminates TLS (certbot sidecar renews). server/.env lives ON THE HOST.
+# Deploy: git pull && docker compose up -d --build      Runbook: DEPLOY.md
+
+services:
+  api:
+    build: ./server
+    command: node dist/server.js
+    env_file: ./server/.env
+    environment:
+      - REDIS_URL=redis://redis:6379
+    expose:
+      - "4000"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    logging: &logs
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  worker:
+    build: ./server
+    command: node dist/worker.js
+    env_file: ./server/.env
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+    restart: unless-stopped
+    logging: *logs
+
+  redis:
+    image: redis:7-alpine
+    # noeviction is a BullMQ requirement — eviction silently corrupts queues
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    logging: *logs
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # bootstrap: point this at deploy/nginx.http.conf until the first cert exists (DEPLOY.md step 5)
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - certbot-webroot:/var/www/certbot:ro
+      - letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+    logging: *logs
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot-webroot:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt
+    # renew loop — checks twice a day, renews when <30 days left
+    entrypoint: sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done'
+    restart: unless-stopped
+    logging: *logs
+
+volumes:
+  redis-data:
+  certbot-webroot:
+  letsencrypt:

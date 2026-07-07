@@ -21,6 +21,10 @@ const EnvSchema = z.object({
   JWT_SECRET: z.string().min(32),
   INTERNAL_API_SECRET: z.string().min(16),
   TELEGRAM_BOT_TOKEN: z.string(), // required (bot phase)
+  // Transport (§19, one bot): polling = local dev · webhook = production (API process
+  // hosts /bot) · off = bot untouched (REQUIRED local default after deploy — polling
+  // would delete the production webhook).
+  TELEGRAM_MODE: z.enum(["polling", "webhook", "off"]).default("polling"),
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
   TELEGRAM_BOT_USERNAME: z.string().optional(), // deep-link linking needs it (t.me/<username>?start=…)
   DEEPSEEK_API_KEY: z.string(), // required (brain phase)
@@ -31,7 +35,16 @@ const EnvSchema = z.object({
   DASHBOARD_CHAT_ID: z.coerce.number().int().default(1764981523),
 });
 
-const parsed = EnvSchema.safeParse(process.env);
+const Refined = EnvSchema.superRefine((e, ctx) => {
+  if (e.TELEGRAM_MODE === "webhook") {
+    if (!e.TELEGRAM_WEBHOOK_SECRET || e.TELEGRAM_WEBHOOK_SECRET.length < 16)
+      ctx.addIssue({ code: "custom", path: ["TELEGRAM_WEBHOOK_SECRET"], message: "required (≥16 chars) when TELEGRAM_MODE=webhook" });
+    if (!e.PUBLIC_BASE_URL)
+      ctx.addIssue({ code: "custom", path: ["PUBLIC_BASE_URL"], message: "required when TELEGRAM_MODE=webhook" });
+  }
+});
+
+const parsed = Refined.safeParse(process.env);
 if (!parsed.success) {
   console.error("❌ Invalid environment variables:\n", parsed.error.flatten().fieldErrors);
   process.exit(1);
