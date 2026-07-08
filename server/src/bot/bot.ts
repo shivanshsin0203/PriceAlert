@@ -29,8 +29,11 @@ I watch asset prices and ping you the moment your condition hits — just tell m
    • bulk works: "alert me if top 6 crypto rise 5% in 1h"
 
 💰 <b>Prices</b>  —  "what's SOL at?" · "prices of gold, oil and nifty"
+
 💱 <b>Currency</b>  —  "switch to INR"  (display only: USD / EUR / INR)
+
 📋 <b>Manage</b>  —  "show my alerts" → tap 🗑 to delete
+
 🔗 <b>Web app</b>  —  link the dashboard for the same alerts on both
 
 📈 <b>Assets</b>
@@ -42,6 +45,7 @@ I watch asset prices and ping you the moment your condition hits — just tell m
 ⌨️  /help  ·  /list  ·  /price  ·  /assets  ·  /unlink
 
 Alerts fire once, then they're done — no spam.
+
 <i>Not financial advice.</i>`;
 
 const HELP = `📖 <b>How to use me</b>
@@ -84,7 +88,9 @@ const ASSETS = `📈 <b>Supported assets</b>
    ${escHtml(INDIA.map(nameOf).join(" · "))}
 
 📊 <b>Index:</b> Nifty 50    🛢 <b>Commodity:</b> Crude Oil
+
 🥇 <b>Metals</b> (prices only): ${escHtml(METALS.join(" · "))}
+
 💱 <b>Forex</b> (prices only): ${escHtml(FOREX.join(" · "))}
 
 All thresholds in USD — display in USD / EUR / INR via "switch to …".`;
@@ -104,11 +110,11 @@ async function resolveUser(chatId: number, username?: string): Promise<BotUser |
 
 async function renderList(user: BotUser): Promise<{ text: string; keyboard?: InlineKeyboard }> {
   const alerts = await listAlerts(user.userId);
-  if (alerts.length === 0) return { text: '📋 No active alerts. Try "alert me if BTC drops 5% in 1h".' };
+  if (alerts.length === 0) return { text: '📋 No active alerts.\n\nTry "alert me if BTC drops 5% in 1h".' };
   const kb = new InlineKeyboard();
   alerts.forEach((a, i) => kb.text(`🗑 Delete #${i + 1}`, `del:${a.id}`).row());
   return {
-    text: "📋 Your alerts:\n" + alerts.map((a, i) => `• ${describeAlert(a, i + 1)}`).join("\n"),
+    text: "📋 Your alerts:\n\n" + alerts.map((a, i) => `• ${describeAlert(a, i + 1)}`).join("\n"),
     keyboard: kb,
   };
 }
@@ -145,7 +151,7 @@ async function execute(
     }
     case "change_currency": {
       await setCurrency(user, args.currency as Currency);
-      return { text: `💱 Display currency is now ${args.currency}. (Alert thresholds stay in USD.)` };
+      return { text: `💱 Display currency is now ${args.currency}.\n\nAlert thresholds stay in USD.` };
     }
     case "list_alerts":
       return renderList(user);
@@ -167,9 +173,9 @@ export function createBot() {
       if (r.already) {
         return void (await ctx.reply(`✅ This Telegram is already connected to ${maskEmail(r.email)}.`));
       }
-      const merged = r.mergedAlerts > 0 ? `\n📦 ${r.mergedAlerts} existing alert${r.mergedAlerts === 1 ? "" : "s"} from this chat moved to your account.` : "";
+      const merged = r.mergedAlerts > 0 ? `\n\n📦 ${r.mergedAlerts} existing alert${r.mergedAlerts === 1 ? "" : "s"} from this chat moved to your account.` : "";
       await ctx.reply(
-        `🔗 Connected! This chat is now linked to ${maskEmail(r.email)} — alerts fire here AND in the web app.${merged}\n\n⚠️ Not you? Send /unlink to disconnect immediately.\nSend /help to see what I can do.`,
+        `🔗 Connected!\n\nThis chat is now linked to ${maskEmail(r.email)} — alerts fire here AND in the web app.${merged}\n\n⚠️ Not you? Send /unlink to disconnect immediately.\n\nSend /help to see what I can do.`,
       );
     } catch (e) {
       plog.error(`bot: link failed for chat ${ctx.chat.id} — ${(e as Error).message}`);
@@ -190,7 +196,7 @@ export function createBot() {
   // it's recoverable via the dashboard, but a mis-tap shouldn't cut delivery silently).
   bot.command("unlink", async (ctx) => {
     await ctx.reply(
-      "🔓 Disconnect this chat from its web account?\n\nYour alerts stay in the web account and keep firing to the in-app inbox — they just stop pinging here. You can re-link anytime from the dashboard.",
+      "🔓 Disconnect this chat from its web account?\n\nYour alerts stay in the web account and keep firing to the in-app inbox — they just stop pinging here.\n\nYou can re-link anytime from the dashboard.",
       { reply_markup: new InlineKeyboard().text("Yes, disconnect", "unlink:yes").text("Cancel", "unlink:no") },
     );
   });
@@ -204,7 +210,7 @@ export function createBot() {
         await ctx.answerCallbackQuery({ text: r.ok ? "Disconnected ✓" : "Nothing to disconnect" });
         await ctx.editMessageText(
           r.ok
-            ? `🔓 Disconnected from ${maskEmail(r.email)}. Alerts now go to the web inbox only — re-link anytime from the dashboard.`
+            ? `🔓 Disconnected from ${maskEmail(r.email)}.\n\nAlerts now go to the web inbox only — re-link anytime from the dashboard.`
             : `⚠️ ${r.reason}`,
         );
       } catch (e) {

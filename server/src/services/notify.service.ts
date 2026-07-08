@@ -32,25 +32,25 @@ const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 export function buildFireText(a: HotAlert, current: number): string {
   const c = a.condition;
   if (c.kind === "absolute") {
-    return `🔔 <b>ALERT FIRED</b>\n<b>${label(c.symbol)}</b> is ${c.op} <b>${fmtPrice(c.value, c.symbol)}</b> — now at <b>${fmtPrice(current, c.symbol)}</b>.`;
+    return `🔔 <b>ALERT FIRED</b>\n\n<b>${label(c.symbol)}</b> is ${c.op} <b>${fmtPrice(c.value, c.symbol)}</b> — now at <b>${fmtPrice(current, c.symbol)}</b>.`;
   }
   const moved = pctFromAnchor(a.anchorPrice, current);
   const sign = moved >= 0 ? "+" : "";
-  return `🔔 <b>ALERT FIRED</b>\n<b>${label(c.symbol)}</b> moved <b>${sign}${moved.toFixed(2)}%</b> (your target: ${c.dir === "up" ? "+" : "−"}${c.pct}% in ${c.window.value}${c.window.unit})\n${fmtPrice(a.anchorPrice, c.symbol)} → <b>${fmtPrice(current, c.symbol)}</b>`;
+  return `🔔 <b>ALERT FIRED</b>\n\n<b>${label(c.symbol)}</b> moved <b>${sign}${moved.toFixed(2)}%</b> (your target: ${c.dir === "up" ? "+" : "−"}${c.pct}% in ${c.window.value}${c.window.unit})\n${fmtPrice(a.anchorPrice, c.symbol)} → <b>${fmtPrice(current, c.symbol)}</b>`;
 }
 
 export function buildExpiryText(a: HotAlert, current: number | null): string {
   const c = a.condition;
   if (c.kind === "absolute") {
-    const now = current != null ? ` ${label(c.symbol)} is at <b>${fmtPrice(current, c.symbol)}</b>.` : "";
-    return `⌛ <b>ALERT EXPIRED</b>\nYour "<b>${label(c.symbol)}</b> ${c.op} ${fmtPrice(c.value, c.symbol)}" alert reached its 24h limit without firing.${now}`;
+    const now = current != null ? `\n\nIt's now at <b>${fmtPrice(current, c.symbol)}</b>.` : "";
+    return `⌛ <b>ALERT EXPIRED</b>\n\nYour "<b>${label(c.symbol)}</b> ${c.op} ${fmtPrice(c.value, c.symbol)}" alert reached its 24h limit without firing.${now}`;
   }
   const moved = current != null ? pctFromAnchor(a.anchorPrice, current) : null;
   const detail =
     moved != null
-      ? ` It moved <b>${moved >= 0 ? "+" : ""}${moved.toFixed(2)}%</b> (needed ${c.dir === "up" ? "+" : "−"}${c.pct}%).`
+      ? `\n\nIt moved <b>${moved >= 0 ? "+" : ""}${moved.toFixed(2)}%</b> (needed ${c.dir === "up" ? "+" : "−"}${c.pct}%).`
       : "";
-  return `⌛ <b>ALERT EXPIRED</b>\nYour "<b>${label(c.symbol)}</b> ${c.dir === "up" ? "+" : "−"}${c.pct}% in ${c.window.value}${c.window.unit}" window ended without firing.${detail}`;
+  return `⌛ <b>ALERT EXPIRED</b>\n\nYour "<b>${label(c.symbol)}</b> ${c.dir === "up" ? "+" : "−"}${c.pct}% in ${c.window.value}${c.window.unit}" window ended without firing.${detail}`;
 }
 
 // ── fire / expire (called by the watcher tick) ──
@@ -98,7 +98,7 @@ export async function fireAlert(a: HotAlert, current: number): Promise<void> {
     ...(c.kind === "pct_change" ? { window: `${c.window.value}${c.window.unit}` } : {}),
   });
   if (ctx) text += `\n\n💡 ${esc(ctx)}`;
-  text += `\n<i>Not financial advice.</i>`;
+  text += `\n\n<i>Not financial advice.</i>`;
 
   await finalize(a, "fire", text, current);
 }
