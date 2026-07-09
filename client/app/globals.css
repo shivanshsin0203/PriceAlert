@@ -734,6 +734,8 @@ a { color: inherit; }
   font-size: 10.5px; font-weight: 700; font-family: var(--font-mono-stack);
   border-radius: 999px; padding: 2px 6px;
   border: 2px solid var(--bg);
+  z-index: 2; min-width: 9px; text-align: center; line-height: 1.15;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
 }
 .bell-panel {
   position: absolute; right: 0; top: 48px;
@@ -757,7 +759,9 @@ a { color: inherit; }
 .notif-text { font-size: 13px; white-space: pre-line; line-height: 1.5; color: var(--muted); }
 
 /* chart modal */
-.chart-box { min-height: 380px; position: relative; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; background: var(--bg); }
+/* viewport-relative so head + chart + stats all fit inside the modal's 90vh on
+   short laptop screens (fixed 380px used to overflow → internal scroll + hidden stats) */
+.chart-box { height: clamp(230px, 44vh, 380px); position: relative; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; background: var(--bg); }
 .chart-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
 .chart-note { color: var(--faint); font-size: 12px; margin: 12px 0 0; font-family: var(--font-mono-stack); }
 
@@ -834,6 +838,7 @@ a { color: inherit; }
   .xform-mid { flex-direction: row; padding: 2px 0; }
   .xform-mid svg { transform: rotate(90deg); }
   .footer-grid { grid-template-columns: 1fr 1fr; }
+  .statrow { grid-template-columns: repeat(2, 1fr); }  /* tablet: 2×2 tiles */
 }
 
 @media (max-width: 720px) {
@@ -847,8 +852,17 @@ a { color: inherit; }
   .tg-banner { flex-direction: column; align-items: stretch; }
   .footer-grid { grid-template-columns: 1fr; gap: 28px; }
   .topbar-in { height: 58px; }
-  .dash-actions { flex-wrap: wrap; }
-  .statrow { grid-template-columns: 1fr 1fr; }
+}
+
+/* phones: keep the topbar a single tidy row — collapse "+ New alert" to just "+"
+   so the currency select, bell (+badge), and avatar never wrap/clip (they used to
+   flex-wrap inside the fixed-height bar and swallow the unread badge) */
+@media (max-width: 600px) {
+  .topbar-in { padding: 0 14px; gap: 8px; }
+  .dash-actions { gap: 6px; }
+  .dash-actions .btn-label { display: none; }
+  .dash-actions .btn-primary { padding: 0; width: 40px; height: 40px; flex: none; }
+  .ccy-select { padding: 9px 8px; font-size: 13px; }
 }
 
 @media (max-width: 520px) {
@@ -858,7 +872,6 @@ a { color: inherit; }
   .hero-sub { font-size: 16px; }
   .form-row { flex-direction: column; }
   .modal { padding: 18px; }
-  .chart-box { min-height: 300px; }
   .stats { gap: 10px 18px; padding: 12px 14px; }
   .cta-band { padding: 64px 0; }
   .support { padding-top: 48px; }

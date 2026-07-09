@@ -112,7 +112,10 @@ export default function DashboardPage() {
               <option value="INR">₹ INR</option>
             </select>
             <NotificationBell unread={unread} onUnreadCleared={() => setUnread(0)} />
-            <button className="btn-primary" onClick={() => setShowCreate(true)}>+ New alert</button>
+            <button className="btn-primary" aria-label="New alert" onClick={() => setShowCreate(true)}>
+              <span aria-hidden="true">+</span>
+              <span className="btn-label">New alert</span>
+            </button>
             {me && (
               <UserMenu
                 me={me}

@@ -116,7 +116,7 @@ export default function PriceGraphModal({ alert, onClose }: { alert: AlertDTO; o
     if (!el) return;
     const chart = createChart(el, {
       width: el.clientWidth,
-      height: 380,
+      height: el.clientHeight || 340,
       layout: {
         background: { type: ColorType.Solid, color: "#0b0f14" },
         textColor: "#93a1b0",
@@ -142,7 +142,7 @@ export default function PriceGraphModal({ alert, onClose }: { alert: AlertDTO; o
     chartRef.current = chart;
     seriesRef.current = series;
 
-    const onResize = () => chart.applyOptions({ width: el.clientWidth });
+    const onResize = () => chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
     window.addEventListener("resize", onResize);
     return () => {
       window.removeEventListener("resize", onResize);
